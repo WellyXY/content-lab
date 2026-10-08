@@ -294,9 +294,9 @@ export async function capturePost(
   }
 }
 
-export function recordCodexAuthAlert(db: ContentLabDatabase, error: string, now = new Date().toISOString()): void {
+export function recordCodexAuthAlert(db: ContentLabDatabase, error: string, action = "Run `codex login` on the Mac", now = new Date().toISOString()): void {
   const hour = hourBucket(now);
-  insertAlert(db, { postId: null, rule: "ops_codex_auth", dedupeKey: `ops:codex-auth:${hour}`, payload: { error, action: "Run `codex login` on the Mac" } }, now);
+  insertAlert(db, { postId: null, rule: "ops_codex_auth", dedupeKey: `ops:codex-auth:${hour}`, payload: { error, action } }, now);
 }
 
 export function syntheticVideoId(url: string): string {

@@ -30,6 +30,24 @@ This Mac also uses the checked-in `launchd/` definitions for crash restart and l
 
 To reinstall the checked-in agents on this Mac, first add or update the token interactively with `security add-generic-password -U -a welly -s com.welly.content-lab.site-sync -w`, then copy both plist files into `~/Library/LaunchAgents/` and bootstrap them with `launchctl bootstrap gui/$(id -u) <plist>`. Logs are written under ignored `var/log/`.
 
+## Feishu App Bot
+
+The worker uses the official `@larksuiteoapi/node-sdk` Channel over one WebSocket connection. Direct messages require an explicit sender `open_id` allowlist. Group messages require both an allowlisted sender and chat, plus an explicit @ mention. Empty allowlists deny access. Queries are fixed, read-only SQLite projections (`概覽`, `熱門 5 市場 VN`, `告警 5`, `任務`, `素材 <URL/id>`, `健康`); message text is never executed as shell or SQL.
+
+Safe setup commands:
+
+```bash
+npm run feishu:onboard -- --app-id cli_...
+npm run feishu:doctor -- --app-id cli_...
+npm run feishu:configure -- --app-id cli_... # optional one-time WS event patch
+```
+
+Onboarding opens nothing automatically. It prints a short-lived authorization URL for the operator to open, verifies that the returned `client_id` is the requested existing app, and writes the secret to macOS Keychain service `com.welly.content-lab.feishu-app-secret` using stdin. It explicitly uses `addons.preset=false`, so the SDK does not request its broad default bundle of unrelated permissions, events, and callbacks; existing app grants remain unchanged. It never prints the secret. Add `--send-test` only when one intentional “Content Lab 已連線” DM should be sent to the returned owner `open_id`.
+
+The runtime requires only the granted tenant scopes `im:message:send_as_bot`, `im:message.p2p_msg:readonly`, and `im:message.group_at_msg:readonly`, plus the `im.message.receive_v1` event in WebSocket mode. `feishu:doctor` checks identity and these grants without changing them. `feishu:configure` only sets the WebSocket event; publishing remains an explicit control-plane action.
+
+The LaunchAgent wrapper loads the App ID, secret, owner sender/alert ID, and optional chat allowlist from Keychain. `FEISHU_ALERT_CHAT_ID` and `FEISHU_ALERT_OPEN_ID` are mutually exclusive. App Bot `im.v1.message.create` is the primary alert path; `FEISHU_WEBHOOK_URL` remains an optional fallback. Its `PUBLIC_BASE_URL` is explicitly the hosted Content Lab origin so cards never link to localhost. `lockf` protects the complete LaunchAgent worker, and a second lock protects the WebSocket when the worker is run outside launchd.
+
 ## Local API
 
 - `GET /health`

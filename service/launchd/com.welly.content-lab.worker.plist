@@ -6,9 +6,13 @@
   <string>com.welly.content-lab.worker</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/zsh</string>
-    <string>-c</string>
-    <string>export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"; export SITE_SYNC_URL="https://content-lab-welly.biii38839.chatgpt.site"; export CONTENT_LAB_WORKER_ID="mac-welly-content-lab"; export SITE_SYNC_TOKEN="$(/usr/bin/security find-generic-password -w -a welly -s com.welly.content-lab.site-sync)"; exec /opt/homebrew/bin/node --import tsx src/worker.ts</string>
+    <string>/usr/bin/lockf</string>
+    <string>-s</string>
+    <string>-t</string>
+    <string>0</string>
+    <string>-k</string>
+    <string>/Users/welly/Documents/Codex/Projects/Pop Up agent/content-lab/var/content-lab-worker.lock</string>
+    <string>/Users/welly/Documents/Codex/Projects/Pop Up agent/content-lab/service/scripts/run-worker-launchd.sh</string>
   </array>
   <key>WorkingDirectory</key>
   <string>/Users/welly/Documents/Codex/Projects/Pop Up agent/content-lab/service</string>

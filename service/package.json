@@ -13,11 +13,15 @@
     "worker": "tsx src/worker.ts",
     "worker:once": "tsx src/worker.ts --once",
     "doctor": "tsx src/doctor.ts",
+    "feishu:onboard": "tsx src/feishu-onboard.ts",
+    "feishu:doctor": "tsx src/feishu-doctor.ts",
+    "feishu:configure": "tsx src/feishu-configure.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",
+    "@larksuiteoapi/node-sdk": "^1.74.0",
     "hono": "^4.7.2",
     "zod": "^3.24.2"
   },

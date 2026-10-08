@@ -73,7 +73,7 @@ process.stdin.on("end", () => {
     try {
       db.prepare("INSERT INTO posts(id,video_id,url,bound_at,created_at,updated_at) VALUES ('p1','7412345678901234567','https://www.tiktok.com/@a/photo/7412345678901234567',?,?,?)")
         .run("2026-10-08T00:00:00.000Z", "2026-10-08T00:00:00.000Z", "2026-10-08T00:00:00.000Z");
-      await analyzePost(db, { ...loadConfig(), mediaDir, taxonomyPath, siteSyncUrl: null, siteSyncToken: null }, "p1");
+      await analyzePost(db, { ...loadConfig(), analyzerProvider: "codex", mediaDir, taxonomyPath, siteSyncUrl: null, siteSyncToken: null }, "p1");
       expect(db.prepare("SELECT features_state FROM posts WHERE id='p1'").get()).toMatchObject({ features_state: "ready" });
       expect(db.prepare("SELECT summary_zh, keyframes_json FROM post_features WHERE post_id='p1'").get()).toMatchObject({ summary_zh: "測試圖片", keyframes_json: '["/media/p1/frame-01.png"]' });
     } finally {

@@ -1,4 +1,5 @@
 import type { ContentLabDatabase } from "../db/database.js";
+import { syncPostReadModel } from "../collector.js";
 import { enqueueJob } from "../jobs/queue.js";
 
 export type RemoteBindJob = {
@@ -7,6 +8,22 @@ export type RemoteBindJob = {
   payload: { urls: string[]; sitePostId?: string; market?: string | null; projectTag?: string | null; boundBy?: string | null };
   attempts: number;
 };
+
+export type RemoteAnalyzeJob = {
+  id: string;
+  kind: "analyze";
+  payload: { postId: string };
+  attempts: number;
+};
+
+/** A job this worker cannot run; it is reported back as failed instead of blocking the lease batch. */
+export type RemoteRejectedJob = { id: string; kind: "rejected"; reason: string; attempts: number };
+
+export type RemoteJob = RemoteBindJob | RemoteAnalyzeJob | RemoteRejectedJob;
+
+/** Hosted analysis retries spend local model quota, so they are budgeted here as well. */
+export const REMOTE_ANALYZE_DAILY_LIMIT = 30;
+export const REMOTE_ANALYZE_POST_COOLDOWN_MS = 6 * 3_600_000;
 
 export type SiteSyncEvent = {
   id: string;
@@ -56,15 +73,28 @@ export class SiteSyncClient {
     }
   }
 
-  async leaseJobs(limit = 10, leaseSeconds = 300): Promise<RemoteBindJob[]> {
+  async leaseJobs(limit = 10, leaseSeconds = 300): Promise<RemoteJob[]> {
     const result = await this.post<{ jobs?: unknown }>("/api/local-worker/jobs/lease", { workerId: this.options.workerId, limit, leaseSeconds }, `lease:${this.options.workerId}:${Math.floor(Date.now() / 30_000)}`);
     if (!Array.isArray(result.jobs)) throw new Error("Site sync lease response is missing jobs");
-    return result.jobs.map((value) => {
-      if (!value || typeof value !== "object") throw new Error("Site sync returned an invalid job");
-      const job = value as Partial<RemoteBindJob>;
-      if (typeof job.id !== "string" || job.kind !== "bind" || !job.payload || !Array.isArray(job.payload.urls)) throw new Error("Site sync returned an unsupported job");
-      if (job.payload.sitePostId !== undefined && (typeof job.payload.sitePostId !== "string" || job.payload.sitePostId.length < 1 || job.payload.sitePostId.length > 128)) throw new Error("Site sync returned an invalid sitePostId");
-      return { id: job.id, kind: "bind", payload: job.payload, attempts: typeof job.attempts === "number" ? job.attempts : 0 };
+    return result.jobs.flatMap((value): RemoteJob[] => {
+      if (!value || typeof value !== "object") return [];
+      const job = value as { id?: unknown; kind?: unknown; payload?: Record<string, unknown>; attempts?: unknown };
+      if (typeof job.id !== "string") return [];
+      const attempts = typeof job.attempts === "number" ? job.attempts : 0;
+      const reject = (reason: string): RemoteJob[] => [{ id: job.id as string, kind: "rejected", reason, attempts }];
+      if (!job.payload || typeof job.payload !== "object") return reject("Job payload is missing");
+      if (job.kind === "bind") {
+        if (!Array.isArray(job.payload.urls)) return reject("Bind job has no URL list");
+        const sitePostId = job.payload.sitePostId;
+        if (sitePostId !== undefined && (typeof sitePostId !== "string" || sitePostId.length < 1 || sitePostId.length > 128)) return reject("Bind job has an invalid sitePostId");
+        return [{ id: job.id, kind: "bind", payload: job.payload as RemoteBindJob["payload"], attempts }];
+      }
+      if (job.kind === "analyze") {
+        const postId = job.payload.postId;
+        if (typeof postId !== "string" || postId.length < 1 || postId.length > 128) return reject("Analyze job has an invalid postId");
+        return [{ id: job.id, kind: "analyze", payload: { postId }, attempts }];
+      }
+      return reject(`Unsupported job kind: ${String(job.kind)}`);
     });
   }
 
@@ -93,15 +123,38 @@ const createErrorKey = (error: string): string => {
   return (hash >>> 0).toString(16);
 };
 
-export async function pullRemoteJobs(db: ContentLabDatabase, client: SiteSyncClient): Promise<number> {
+function analyzeBudgetRefusal(db: ContentLabDatabase, sitePostId: string, now: number): string | null {
+  const since = new Date(now - 24 * 3_600_000).toISOString();
+  const daily = (db.prepare("SELECT COUNT(*) AS count FROM jobs WHERE kind='remote_analyze' AND created_at >= ?").get(since) as { count: number }).count;
+  if (daily >= REMOTE_ANALYZE_DAILY_LIMIT) return `已達每日 ${REMOTE_ANALYZE_DAILY_LIMIT} 次重新分析上限`;
+  const cooldownStart = new Date(now - REMOTE_ANALYZE_POST_COOLDOWN_MS).toISOString();
+  const recent = db.prepare("SELECT 1 FROM jobs WHERE kind='remote_analyze' AND json_extract(payload_json, '$.sitePostId')=? AND created_at >= ? LIMIT 1").get(sitePostId, cooldownStart);
+  return recent ? "這條帖子 6 小時內已重新分析過" : null;
+}
+
+export async function pullRemoteJobs(db: ContentLabDatabase, client: SiteSyncClient, now = Date.now()): Promise<number> {
   const jobs = await client.leaseJobs();
+  let accepted = 0;
   for (const job of jobs) {
-    enqueueJob(db, {
-      kind: "remote_bind", payload: job.payload, syncRemoteId: job.id,
-      idempotencyKey: `site-job:${job.id}`, maxAttempts: 3,
-    });
+    let refusal: string | null = job.kind === "rejected" ? job.reason : null;
+    if (job.kind === "analyze") refusal = analyzeBudgetRefusal(db, job.payload.postId, now);
+    if (refusal) {
+      await client.failJob(job.id, refusal, false).catch(() => undefined);
+      // The Site marked the post as queued when the retry was requested; restore its real state.
+      const post = job.kind === "analyze"
+        ? db.prepare("SELECT id FROM posts WHERE site_post_id=? OR id=? LIMIT 1").get(job.payload.postId, job.payload.postId) as { id: string } | undefined
+        : undefined;
+      if (post) syncPostReadModel(db, post.id);
+      continue;
+    }
+    if (job.kind === "bind") {
+      enqueueJob(db, { kind: "remote_bind", payload: job.payload, syncRemoteId: job.id, idempotencyKey: `site-job:${job.id}`, maxAttempts: 3 });
+    } else if (job.kind === "analyze") {
+      enqueueJob(db, { kind: "remote_analyze", payload: { sitePostId: job.payload.postId }, syncRemoteId: job.id, idempotencyKey: `site-job:${job.id}`, maxAttempts: 3 });
+    }
+    accepted += 1;
   }
-  return jobs.length;
+  return accepted;
 }
 
 interface OutboxRow {

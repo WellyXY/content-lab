@@ -6,41 +6,67 @@ interface AlertRow {
   delivery_attempts: number; site_post_id: string | null;
 }
 
+export interface FeishuAlertTransport {
+  name: string;
+  sendCard: (card: Record<string, unknown>, idempotencyKey: string) => Promise<void>;
+}
+
 const compact = (value: number): string => new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 const safeText = (value: unknown): string => String(value).replace(/[<>&`]/g, (character) => ({ "<": "‹", ">": "›", "&": "＆", "`": "'" })[character] ?? character);
 
 function cardForAlert(row: AlertRow, publicBaseUrl: string): Record<string, unknown> {
   const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
-  const postId = typeof payload.postId === "string" ? payload.postId : row.post_id;
+  const payloadPostId = typeof payload.postId === "string" ? payload.postId : null;
+  const detailId = row.site_post_id ?? payloadPostId ?? row.post_id;
   const title = row.rule === "milestone" ? "Content Lab · 播放里程碑" : row.rule === "acceleration" ? "Content Lab · 素材正在加速" : "Content Lab · 運維提醒";
   const current = typeof payload.currentViews === "number" ? compact(payload.currentViews) : "—";
   const previous = typeof payload.previousViews === "number" ? compact(payload.previousViews) : "—";
   const delta = typeof payload.delta === "number" ? `+${compact(payload.delta)}` : "—";
   const url = typeof payload.url === "string" ? payload.url : null;
-  const detailUrl = postId ? `${publicBaseUrl}/posts/${encodeURIComponent(postId)}` : publicBaseUrl;
+  const detailUrl = detailId ? `${publicBaseUrl}/posts/${encodeURIComponent(detailId)}` : publicBaseUrl;
   const lines = [
     `**規則**：${row.rule}`,
     `**市場**：${safeText(payload.market ?? "—")}`,
     `**播放**：${current}（前值 ${previous}，變化 ${delta}）`,
-    typeof payload.error === "string" ? `**錯誤**：${safeText(payload.error.slice(0, 500))}` : null,
+    typeof payload.error === "string" ? "**狀態**：處理失敗，請查看本機日誌" : null,
     url ? `[查看 TikTok](${url}) · [查看曲線](${detailUrl})` : `[打開 Content Lab](${detailUrl})`,
   ].filter(Boolean).join("\n");
   return {
-    msg_type: "interactive",
-    card: {
-      header: { template: row.rule.startsWith("ops_") ? "red" : "orange", title: { tag: "plain_text", content: title } },
-      elements: [{ tag: "div", text: { tag: "lark_md", content: lines } }],
+    header: { template: row.rule.startsWith("ops_") ? "red" : "orange", title: { tag: "plain_text", content: title } },
+    elements: [{ tag: "div", text: { tag: "lark_md", content: lines } }],
+  };
+}
+
+export function createFeishuWebhookTransport(webhookUrl: string, fetchImpl: typeof fetch = fetch): FeishuAlertTransport {
+  return {
+    name: "webhook",
+    async sendCard(card) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10_000);
+      try {
+        const response = await fetchImpl(webhookUrl, {
+          method: "POST",
+          signal: controller.signal,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ msg_type: "interactive", card }),
+        });
+        const body = await response.json().catch(() => null) as { code?: number; StatusCode?: number; msg?: string } | null;
+        const accepted = response.ok && (body?.code === 0 || body?.StatusCode === 0);
+        if (!accepted) throw new Error(`Feishu webhook returned ${response.status}: ${JSON.stringify(body).slice(0, 500)}`);
+      } finally {
+        clearTimeout(timer);
+      }
     },
   };
 }
 
 export async function deliverAlertOutbox(
   db: ContentLabDatabase,
-  webhookUrl: string | null,
+  transports: readonly FeishuAlertTransport[],
   publicBaseUrl: string,
   limit = 20,
 ): Promise<{ delivered: number; skipped: number; failed: number }> {
-  if (!webhookUrl) return { delivered: 0, skipped: 0, failed: 0 };
+  if (transports.length === 0) return { delivered: 0, skipped: 0, failed: 0 };
   const now = new Date().toISOString();
   const rows = db.prepare(`
     SELECT a.id, a.post_id, a.rule, a.fired_at, a.payload_json, a.delivery_attempts, p.site_post_id
@@ -51,15 +77,20 @@ export async function deliverAlertOutbox(
   let delivered = 0;
   let failed = 0;
   for (const row of rows) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10_000);
     try {
-      const response = await fetch(webhookUrl, {
-        method: "POST", signal: controller.signal, headers: { "content-type": "application/json" }, body: JSON.stringify(cardForAlert(row, publicBaseUrl)),
-      });
-      const body = await response.json().catch(() => null) as { code?: number; StatusCode?: number; msg?: string } | null;
-      const accepted = response.ok && (body?.code === 0 || body?.StatusCode === 0);
-      if (!accepted) throw new Error(`Feishu returned ${response.status}: ${JSON.stringify(body).slice(0, 500)}`);
+      const card = cardForAlert(row, publicBaseUrl);
+      const errors: string[] = [];
+      let sent = false;
+      for (const transport of transports) {
+        try {
+          await transport.sendCard(card, row.id);
+          sent = true;
+          break;
+        } catch (error) {
+          errors.push(`${transport.name}: ${error instanceof Error ? error.message : String(error)}`.slice(0, 700));
+        }
+      }
+      if (!sent) throw new Error(`All Feishu transports failed (${errors.join("; ")})`);
       const deliveredAt = new Date().toISOString();
       db.prepare("UPDATE alerts SET delivered_at=?, delivery_attempts=delivery_attempts+1, delivery_error=NULL WHERE id=? AND delivered_at IS NULL")
         .run(deliveredAt, row.id);
@@ -71,8 +102,6 @@ export async function deliverAlertOutbox(
       db.prepare("UPDATE alerts SET delivery_attempts=?, next_delivery_at=?, delivery_error=? WHERE id=?")
         .run(attempts, retryAt, error instanceof Error ? error.message.slice(0, 2_000) : String(error).slice(0, 2_000), row.id);
       failed += 1;
-    } finally {
-      clearTimeout(timer);
     }
   }
   return { delivered, skipped: 0, failed };

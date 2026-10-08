@@ -48,7 +48,7 @@ SITE_SYNC_TOKEN='your-pairing-token' \
 npm run worker
 ```
 
-目前這台 Mac 已安裝 `com.welly.content-lab.web` 與 `com.welly.content-lab.worker` 兩個 LaunchAgent，登入時啟動、崩潰時重啟。配對 token 保存在 macOS Keychain，不在 Git 或 plist 裡。Feishu 是選配，設定 `FEISHU_WEBHOOK_URL` 後才會送群通知。
+目前這台 Mac 已安裝 `com.welly.content-lab.web` 與 `com.welly.content-lab.worker` 兩個 LaunchAgent，登入時啟動、崩潰時重啟。配對 token 與 Feishu App Secret 保存在 macOS Keychain，不在 Git 或 plist 裡。Feishu App Bot 可用 WebSocket 接收白名單內的唯讀查詢，並以 Message API 發告警；舊 `FEISHU_WEBHOOK_URL` 僅作選配後備。詳細設定見 `service/README.md`。
 
 ## 主要能力
 

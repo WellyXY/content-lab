@@ -5,7 +5,8 @@ import { capturePost, ingestPost, recordCodexAuthAlert, syncPostReadModel } from
 import { loadConfig } from "./config.js";
 import { openDatabase, type ContentLabDatabase } from "./db/database.js";
 import { normalizeTikTokUrl } from "./domain/tiktok-url.js";
-import { deliverAlertOutbox } from "./feishu.js";
+import { createContentLabFeishuBot } from "./feishu/bot.js";
+import { createFeishuWebhookTransport, deliverAlertOutbox, type FeishuAlertTransport } from "./feishu.js";
 import { completeJob, enqueueJob, failJob, leaseJobs, type Job } from "./jobs/queue.js";
 import { TikTokProvider } from "./providers/tiktok.js";
 import { runSchedulerCycle } from "./scheduler.js";
@@ -21,6 +22,27 @@ const syncClient = config.siteSyncUrl && config.siteSyncToken
 const log = (event: string, detail: Record<string, unknown> = {}): void => {
   console.log(JSON.stringify({ time: new Date().toISOString(), event, ...detail }));
 };
+
+if (config.feishuAlertChatId && config.feishuAlertOpenId) {
+  throw new Error("Set only one of FEISHU_ALERT_CHAT_ID or FEISHU_ALERT_OPEN_ID");
+}
+
+const feishuBot = config.feishuAppId && config.feishuAppSecret ? createContentLabFeishuBot({
+  appId: config.feishuAppId,
+  appSecret: config.feishuAppSecret,
+  alertChatId: config.feishuAlertChatId,
+  alertOpenId: config.feishuAlertOpenId,
+  allowedSenderIds: config.feishuAllowedSenderIds,
+  allowedChatIds: config.feishuAllowedChatIds,
+  lockPath: config.feishuBotLockPath,
+  db,
+  log,
+}) : null;
+
+const alertTransports: FeishuAlertTransport[] = [
+  feishuBot?.alertTransport ?? null,
+  config.feishuWebhookUrl ? createFeishuWebhookTransport(config.feishuWebhookUrl) : null,
+].filter((transport): transport is FeishuAlertTransport => transport !== null);
 
 async function pushPendingEvents(): Promise<void> {
   if (!syncClient) return;
@@ -64,6 +86,20 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
     await syncClient.completeJob(job.syncRemoteId);
     return;
   }
+  if (job.kind === "remote_analyze") {
+    if (!syncClient || !job.syncRemoteId) throw new Error("Remote analyze job cannot run without site sync configuration");
+    const { sitePostId } = job.payload as { sitePostId?: string };
+    const post = database.prepare("SELECT id FROM posts WHERE site_post_id=? OR id=? LIMIT 1").get(sitePostId ?? "", sitePostId ?? "") as { id: string } | undefined;
+    if (!post) throw new Error(`No local post for hosted post ${sitePostId}`);
+    const latest = database.prepare("SELECT MAX(version) AS version FROM post_features WHERE post_id=?").get(post.id) as { version: number | null };
+    const version = (latest.version ?? 0) + 1;
+    enqueueJob(database, { kind: "analyze", payload: { postId: post.id, version }, idempotencyKey: `site-analyze:${job.syncRemoteId}` });
+    const now = new Date().toISOString();
+    database.prepare("UPDATE posts SET features_state='pending', updated_at=? WHERE id=?").run(now, post.id);
+    syncPostReadModel(database, post.id, now);
+    await syncClient.completeJob(job.syncRemoteId);
+    return;
+  }
   throw new Error(`Unsupported job kind: ${job.kind}`);
 }
 
@@ -83,7 +119,7 @@ export async function runWorkerCycle(): Promise<void> {
       completeJob(db, job.id);
       log("job_completed", { jobId: job.id, kind: job.kind });
     } catch (error) {
-      if (error instanceof CodexAuthError) recordCodexAuthAlert(db, error.message);
+      if (error instanceof CodexAuthError) recordCodexAuthAlert(db, error.message, config.analyzerProvider === "claude" ? "Run `claude` on the Mac and sign in with /login" : "Run `codex login` on the Mac");
       failJob(db, job.id, error);
       const state = db.prepare("SELECT status FROM jobs WHERE id=?").get(job.id) as { status: string };
       if (job.kind === "analyze" && state.status === "dead") {
@@ -94,7 +130,7 @@ export async function runWorkerCycle(): Promise<void> {
           syncPostReadModel(db, payload.postId, now);
         }
       }
-      if (job.kind === "remote_bind" && syncClient && job.syncRemoteId) {
+      if ((job.kind === "remote_bind" || job.kind === "remote_analyze") && syncClient && job.syncRemoteId) {
         try { await syncClient.failJob(job.syncRemoteId, error instanceof Error ? error.message : String(error), state.status !== "dead"); }
         catch (syncError) { log("site_job_fail_ack_failed", { jobId: job.id, error: syncError instanceof Error ? syncError.message : String(syncError) }); }
       }
@@ -103,7 +139,7 @@ export async function runWorkerCycle(): Promise<void> {
     // Publish real metadata and metrics immediately; later AI jobs can take minutes.
     await pushPendingEvents();
   }
-  const delivery = await deliverAlertOutbox(db, config.feishuWebhookUrl, config.publicBaseUrl);
+  const delivery = await deliverAlertOutbox(db, alertTransports, config.publicBaseUrl);
   if (delivery.delivered > 0 || delivery.failed > 0) log("alert_delivery", delivery);
   await pushPendingEvents();
 }
@@ -114,16 +150,30 @@ async function main(): Promise<void> {
   const stop = (): void => { stopping = true; };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
-  do {
-    const started = Date.now();
-    try { await runWorkerCycle(); } catch (error) { log("worker_cycle_failed", { error: error instanceof Error ? error.stack ?? error.message : String(error) }); }
-    if (once || stopping) break;
-    const due = db.prepare("SELECT 1 FROM jobs WHERE status IN ('queued','failed') AND run_at<=? AND attempts<max_attempts LIMIT 1")
-      .get(new Date().toISOString());
-    const wait = due ? 1_000 : Math.max(1_000, 30_000 - (Date.now() - started));
-    await new Promise<void>((resolve) => setTimeout(resolve, wait));
-  } while (!stopping);
-  db.close();
+  try {
+    do {
+      const started = Date.now();
+      if (!once && feishuBot && !["connected", "connecting", "reconnecting"].includes(feishuBot.connectionStatus()?.state ?? "idle")) {
+        try {
+          await feishuBot.connect();
+          log("feishu_bot_connected", { bot: feishuBot.identity()?.name ?? "unknown" });
+        } catch (error) {
+          log("feishu_bot_connect_failed", { error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      try { await runWorkerCycle(); } catch (error) { log("worker_cycle_failed", { error: error instanceof Error ? error.stack ?? error.message : String(error) }); }
+      if (once || stopping) break;
+      const due = db.prepare("SELECT 1 FROM jobs WHERE status IN ('queued','failed') AND run_at<=? AND attempts<max_attempts LIMIT 1")
+        .get(new Date().toISOString());
+      const wait = due ? 1_000 : Math.max(1_000, 30_000 - (Date.now() - started));
+      await new Promise<void>((resolve) => setTimeout(resolve, wait));
+    } while (!stopping);
+  } finally {
+    if (feishuBot) {
+      try { await feishuBot.disconnect(); } catch (error) { log("feishu_bot_disconnect_failed", { error: error instanceof Error ? error.message : String(error) }); }
+    }
+    db.close();
+  }
 }
 
 await main();

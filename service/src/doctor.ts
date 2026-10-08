@@ -32,7 +32,7 @@ try {
 } catch (error) { add("taxonomy", "fail", error instanceof Error ? error.message : String(error)); }
 
 for (const [name, args] of [
-  ["codex", ["login", "status"]],
+  config.analyzerProvider === "claude" ? ["claude", ["auth", "status"]] as const : ["codex", ["login", "status"]] as const,
   ["ffmpeg", ["-version"]],
 ] as const) {
   try {
@@ -44,12 +44,49 @@ for (const [name, args] of [
   }
 }
 
+const feishuCredentialsComplete = Boolean(config.feishuAppId && config.feishuAppSecret);
+if (Boolean(config.feishuAppId) !== Boolean(config.feishuAppSecret)) {
+  add("feishu-bot", "fail", "FEISHU_APP_ID and FEISHU_APP_SECRET must be configured together");
+} else if (feishuCredentialsComplete) {
+  const appIdValid = /^cli_[A-Za-z0-9]+$/.test(config.feishuAppId ?? "");
+  add("feishu-bot", appIdValid ? "ok" : "fail", appIdValid ? "App Bot credentials are configured (not printed or invoked by doctor)" : "FEISHU_APP_ID must start with cli_");
+  const invalidSenders = config.feishuAllowedSenderIds.filter((id) => !/^ou_[A-Za-z0-9_-]+$/.test(id));
+  const invalidChats = config.feishuAllowedChatIds.filter((id) => !/^oc_[A-Za-z0-9_-]+$/.test(id));
+  add("feishu-query-allowlist", invalidSenders.length === 0 && invalidChats.length === 0 ? "ok" : "fail",
+    invalidSenders.length === 0 && invalidChats.length === 0
+      ? `DM senders: ${config.feishuAllowedSenderIds.length}; group chats: ${config.feishuAllowedChatIds.length}; unlisted traffic is denied`
+      : "Allowlist IDs must use Feishu open_id (ou_) or chat_id (oc_) values");
+  if (config.feishuAllowedSenderIds.length === 0) {
+    add("feishu-query-access", "warn", "The sender allowlist is empty; all inbound queries are intentionally disabled");
+  }
+} else {
+  add("feishu-bot", "warn", "FEISHU_APP_ID/FEISHU_APP_SECRET are not configured; App Bot and inbound queries are disabled");
+}
+
+if (config.feishuAlertChatId && config.feishuAlertOpenId) {
+  add("feishu-alert-target", "fail", "Set only one of FEISHU_ALERT_CHAT_ID or FEISHU_ALERT_OPEN_ID");
+} else if (config.feishuAlertChatId) {
+  add("feishu-alert-chat", feishuCredentialsComplete && /^oc_[A-Za-z0-9_-]+$/.test(config.feishuAlertChatId) ? "ok" : "fail",
+    feishuCredentialsComplete ? "App Bot alert target is configured" : "FEISHU_ALERT_CHAT_ID requires App Bot credentials");
+} else if (config.feishuAlertOpenId) {
+  add("feishu-alert-user", feishuCredentialsComplete && /^ou_[A-Za-z0-9_-]+$/.test(config.feishuAlertOpenId) ? "ok" : "fail",
+    feishuCredentialsComplete ? "App Bot direct-message alert target is configured" : "FEISHU_ALERT_OPEN_ID requires App Bot credentials");
+}
+
 if (config.feishuWebhookUrl) {
   try {
     const url = new URL(config.feishuWebhookUrl);
-    add("feishu", url.protocol === "https:" ? "ok" : "fail", url.protocol === "https:" ? "Webhook is configured (not invoked by doctor)" : "Webhook must use HTTPS");
-  } catch { add("feishu", "fail", "FEISHU_WEBHOOK_URL is not a valid URL"); }
-} else add("feishu", "warn", "FEISHU_WEBHOOK_URL is not configured; alerts remain in the local outbox");
+    add("feishu-webhook-fallback", url.protocol === "https:" ? "ok" : "fail", url.protocol === "https:" ? "Webhook fallback is configured (not invoked by doctor)" : "Webhook must use HTTPS");
+  } catch { add("feishu-webhook-fallback", "fail", "FEISHU_WEBHOOK_URL is not a valid URL"); }
+} else if (!config.feishuAlertChatId && !config.feishuAlertOpenId) add("feishu-alerts", "warn", "No App Bot target or webhook is configured; alerts remain in the local outbox");
+
+if (config.feishuAlertChatId || config.feishuAlertOpenId || config.feishuWebhookUrl) {
+  try {
+    const url = new URL(config.publicBaseUrl);
+    const publicLink = url.protocol === "https:" && !new Set(["localhost", "127.0.0.1", "::1"]).has(url.hostname);
+    add("feishu-alert-links", publicLink ? "ok" : "fail", publicLink ? `Alert links use ${url.origin}` : "PUBLIC_BASE_URL must be a public HTTPS origin when Feishu alerts are enabled");
+  } catch { add("feishu-alert-links", "fail", "PUBLIC_BASE_URL is not a valid URL"); }
+}
 
 if ((config.siteSyncUrl && !config.siteSyncToken) || (!config.siteSyncUrl && config.siteSyncToken)) {
   add("site-sync", "fail", "SITE_SYNC_URL and SITE_SYNC_TOKEN must be configured together");
