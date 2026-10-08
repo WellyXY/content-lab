@@ -1,0 +1,156 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "../vendor/shadcn-tailwind-4.13.0.css";
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility scrollbar-gutter-stable {
+  scrollbar-gutter: stable;
+}
+
+:root {
+  --background: #080b10;
+  --foreground: #f2f5f7;
+  --card: #10151e;
+  --card-foreground: #f2f5f7;
+  --popover: #121923;
+  --popover-foreground: #f2f5f7;
+  --primary: #d8ff4c;
+  --primary-foreground: #0b0e12;
+  --secondary: #171e29;
+  --secondary-foreground: #f2f5f7;
+  --muted: #171e29;
+  --muted-foreground: #8993a4;
+  --accent: #1d2633;
+  --accent-foreground: #f2f5f7;
+  --destructive: #ff715b;
+  --border: #202937;
+  --input: #263143;
+  --ring: #d8ff4c;
+  --chart-1: #d8ff4c;
+  --chart-2: #66dfff;
+  --chart-3: #ff715b;
+  --chart-4: #9b8cff;
+  --chart-5: #fbbf24;
+  --radius: 0.75rem;
+  --sidebar: #0b0f15;
+  --sidebar-foreground: #f2f5f7;
+  --sidebar-primary: #d8ff4c;
+  --sidebar-primary-foreground: #0b0e12;
+  --sidebar-accent: #171e29;
+  --sidebar-accent-foreground: #f2f5f7;
+  --sidebar-border: #202937;
+  --sidebar-ring: #d8ff4c;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", ui-monospace, Menlo, Monaco, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  min-width: 320px;
+  background-image:
+    radial-gradient(circle at 88% -12%, rgb(102 223 255 / 8%), transparent 30rem),
+    linear-gradient(rgb(255 255 255 / 1.5%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 1.5%) 1px, transparent 1px);
+  background-size: auto, 36px 36px, 36px 36px;
+  background-attachment: fixed;
+}
+
+::selection {
+  background: rgb(216 255 76 / 85%);
+  color: #080b10;
+}
+
+.nav-item {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 0.75rem;
+  border-radius: 0.625rem;
+  padding: 0 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: color 160ms ease, background 160ms ease;
+}
+
+.nav-item svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.nav-item:hover {
+  background: rgb(255 255 255 / 4%);
+  color: var(--foreground);
+}
+
+.nav-item-active {
+  background: rgb(216 255 76 / 9%);
+  color: var(--primary);
+  box-shadow: inset 2px 0 0 var(--primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

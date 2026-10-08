@@ -1,5 +1,58 @@
 # Content Lab
 
-TikTok 素材每小時監控、爆量報警、Agent 打標與爆款分析。本機運行，模型使用本機 Codex 登入，前端經 Cloudflare Tunnel 對外。
+TikTok 素材監控、爆量報警、Agent 打標與相對排名。公開前端由 GPT Site 承載；TikTok 採集、SQLite、ffmpeg 與 Codex 分析只在這台 Mac 上執行。
 
-設計見 [docs/superpowers/specs](docs/superpowers/specs/)。
+公開頁面：<https://content-lab-welly.biii38839.chatgpt.site>
+
+## 架構
+
+```text
+外部瀏覽器
+  ↕ HTTPS
+GPT Site（Dashboard + D1 讀模型 + 綁定工作佇列）
+  ↕ 本機 worker 主動發起的出站 HTTPS
+Mac（TikWM / oEmbed → SQLite → ffmpeg → Codex → 飛書）
+```
+
+GPT Site 永遠可開；Mac 睡眠時只會暫停新採集與分析，工作保留在佇列，醒來後續跑。公開站點無法連入 localhost，也碰不到 Codex、SQLite 或本機網路。專案完全不需要 Cloudflare Tunnel、cloudflared 或入站端口。
+
+## 目錄
+
+- `site/`：GPT Site 前端、D1 schema、公開 API 與本機 worker bridge。
+- `service/`：只監聽 `127.0.0.1:4320` 的 Hono API、SQLite durable queue、採集器與 Codex worker。
+- `docs/taxonomy/v3.json`：Agent 使用的封閉分類詞表。
+- `docs/superpowers/specs/`：原始產品規格；部署架構以本 README 的 GPT Site 版本為準。
+
+## 本機啟動
+
+需要 Node 22.5+、已登入的 Codex CLI 與 ffmpeg。
+
+```bash
+cd service
+npm ci
+npm run build
+npm run doctor
+npm start
+```
+
+另開一個 shell 啟動 worker；`SITE_SYNC_TOKEN` 必須與 GPT Site 的同名 secret 相同：
+
+```bash
+cd service
+SITE_SYNC_URL=https://content-lab-welly.biii38839.chatgpt.site \
+SITE_SYNC_TOKEN='your-pairing-token' \
+npm run worker
+```
+
+目前這台 Mac 已安裝 `com.welly.content-lab.web` 與 `com.welly.content-lab.worker` 兩個 LaunchAgent，登入時啟動、崩潰時重啟。配對 token 保存在 macOS Keychain，不在 Git 或 plist 裡。Feishu 是選配，設定 `FEISHU_WEBHOOK_URL` 後才會送群通知。
+
+## 主要能力
+
+- 公開 Dashboard：總覽、帖子列表、內容詳情、缺失時段與採集狀態。
+- 綁定：貼網址或匯入 CSV/XLSX；TikTok 網域嚴格驗證、去重、每 IP/每日/活躍量限額。
+- 採集：TikWM 節流與重試，TikTok oEmbed 只作 metadata-only fallback，不捏造指標。
+- 分析：ffmpeg 抽幀，Codex read-only/ephemeral 執行，taxonomy v3 二次驗證。
+- 信號：里程碑、加速、採集失敗、Codex 登入失效與可選 Feishu outbox。
+- 同步：D1 工作租約、事件去重、hosted/local post ID 關聯，以及本機 exponential-backoff outbox。
+
+更完整的本機 API、環境變數與同步協議見 [`service/README.md`](service/README.md)。

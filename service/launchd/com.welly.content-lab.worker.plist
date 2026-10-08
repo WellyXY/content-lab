@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.welly.content-lab.worker</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-c</string>
+    <string>export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"; export SITE_SYNC_URL="https://content-lab-welly.biii38839.chatgpt.site"; export CONTENT_LAB_WORKER_ID="mac-welly-content-lab"; export SITE_SYNC_TOKEN="$(/usr/bin/security find-generic-password -w -a welly -s com.welly.content-lab.site-sync)"; exec /opt/homebrew/bin/npm run worker</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/welly/Documents/Codex/Projects/Pop Up agent/content-lab/service</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/welly/Documents/Codex/Projects/Pop Up agent/content-lab/var/log/worker.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/welly/Documents/Codex/Projects/Pop Up agent/content-lab/var/log/worker.error.log</string>
+</dict>
+</plist>
