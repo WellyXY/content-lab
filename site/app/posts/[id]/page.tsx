@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
-import { compactNumber, tagLabel, type PostDetailData } from "@/lib/content-lab";
+import { compactNumber, tagLabel, tagDimensionLabel, tagConfidenceLabel, type PostDetailData } from "@/lib/content-lab";
 
 const chartConfig = { views: { label: "累計 VV", color: "var(--chart-2)" } } satisfies ChartConfig;
 
@@ -137,9 +137,9 @@ export default function PostDetailPage() {
 
       <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)]">
         <Card className="border-white/8 bg-card/80 shadow-none">
-          <CardHeader className="border-b border-white/8 pb-5"><CardTitle className="text-lg">Agent 標籤</CardTitle><CardDescription>taxonomy {data.features?.taxonomyVersion ?? "v3"} · 只允許詞表值</CardDescription></CardHeader>
+          <CardHeader className="border-b border-white/8 pb-5"><CardTitle className="text-lg">Agent 標籤</CardTitle><CardDescription>分類詞表 {data.features?.taxonomyVersion ?? "v3"} · 固定分類</CardDescription></CardHeader>
           <CardContent className="pt-6">
-            {tagEntries.length ? <div className="grid gap-3 sm:grid-cols-2">{tagEntries.map(([key, raw]) => { const value = tagValue(raw); return <div className="rounded-lg border border-white/8 bg-white/[0.025] p-3" key={key}><p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">{tagLabel(key)}</p><div className="mt-2 flex items-center justify-between gap-2"><p className="text-sm font-medium">{tagLabel(value.value)}</p>{value.confidence ? <span className="font-mono text-[10px] text-muted-foreground">{value.confidence}</span> : null}</div></div>; })}</div> : <div className="py-12 text-center text-sm text-muted-foreground">Agent 還在分析內容。</div>}
+            {tagEntries.length ? <div className="grid gap-3 sm:grid-cols-2">{tagEntries.map(([key, raw]) => { const value = tagValue(raw); return <div className="rounded-lg border border-white/8 bg-white/[0.025] p-3" key={key}><p className="text-sm text-muted-foreground">{tagDimensionLabel(key)}</p><div className="mt-2 flex items-start justify-between gap-3"><p className="min-w-0 text-sm font-medium">{tagLabel(value.value, key)}</p>{value.confidence ? <span className="shrink-0 text-xs text-muted-foreground">{tagConfidenceLabel(value.confidence)}</span> : null}</div></div>; })}</div> : <div className="py-12 text-center text-sm text-muted-foreground">Agent 還在分析內容。</div>}
           </CardContent>
         </Card>
 
@@ -173,12 +173,12 @@ function DetailSkeleton() {
   return <div className="space-y-4"><Skeleton className="h-24 w-full max-w-2xl" /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{Array.from({ length: 5 }, (_, index) => <Skeleton className="h-24" key={index} />)}</div><Skeleton className="h-[430px] w-full" /></div>;
 }
 
-function tagValue(raw: unknown): { value: string; confidence: string | null } {
+function tagValue(raw: unknown): { value: string | string[]; confidence: string | null } {
   if (typeof raw === "string") return { value: raw, confidence: null };
   if (raw && typeof raw === "object") {
     const value = (raw as Record<string, unknown>).value;
     const confidence = (raw as Record<string, unknown>).confidence;
-    if (Array.isArray(value)) return { value: value.join(", "), confidence: typeof confidence === "string" ? confidence : null };
+    if (Array.isArray(value)) return { value: value.filter((item): item is string => typeof item === "string"), confidence: typeof confidence === "string" ? confidence : null };
     return { value: typeof value === "string" ? value : "—", confidence: typeof confidence === "string" ? confidence : null };
   }
   return { value: "—", confidence: null };

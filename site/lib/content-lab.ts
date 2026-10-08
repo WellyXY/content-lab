@@ -129,6 +129,4 @@ export function timeAgo(value: string | null, referenceTime = Date.now()): strin
   return `${Math.round(hours / 24)} 天前`;
 }
 
-export function tagLabel(value: string): string {
-  return value.replaceAll("_", " ");
-}
+export { tagLabel, tagDimensionLabel, tagConfidenceLabel } from "./tag-labels";
