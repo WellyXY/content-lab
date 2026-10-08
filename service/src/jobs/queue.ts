@@ -52,21 +52,25 @@ export function enqueueJob(
 
 export function leaseJobs(
   db: ContentLabDatabase,
-  input: { now?: string; workerId: string; limit?: number; leaseMs?: number },
+  input: { now?: string; workerId: string; limit?: number; leaseMs?: number; kinds?: string[]; excludeKinds?: string[] },
 ): Job[] {
   const now = input.now ?? new Date().toISOString();
   const limit = Math.max(1, Math.min(input.limit ?? 10, 100));
   const lockedUntil = new Date(Date.parse(now) + (input.leaseMs ?? 5 * 60_000)).toISOString();
+  const kindFilter: string[] = [];
+  const kindValues: string[] = [];
+  if (input.kinds?.length) { kindFilter.push(`AND kind IN (${input.kinds.map(() => "?").join(",")})`); kindValues.push(...input.kinds); }
+  if (input.excludeKinds?.length) { kindFilter.push(`AND kind NOT IN (${input.excludeKinds.map(() => "?").join(",")})`); kindValues.push(...input.excludeKinds); }
   db.exec("BEGIN IMMEDIATE");
   try {
     const ids = (db.prepare(`
       SELECT id FROM jobs
       WHERE run_at <= ? AND (
         status IN ('queued','failed') OR (status = 'running' AND locked_until < ?)
-      ) AND attempts < max_attempts
+      ) AND attempts < max_attempts ${kindFilter.join(" ")}
       ORDER BY CASE kind WHEN 'remote_bind' THEN 0 WHEN 'ingest' THEN 1 WHEN 'capture' THEN 2 ELSE 3 END,
         run_at, created_at LIMIT ?
-    `).all(now, now, limit) as Array<{ id: string }>).map((row) => row.id);
+    `).all(now, now, ...kindValues, limit) as Array<{ id: string }>).map((row) => row.id);
     if (ids.length === 0) {
       db.exec("COMMIT");
       return [];
@@ -102,6 +106,13 @@ export function failJob(db: ContentLabDatabase, id: string, error: unknown, now 
   db.prepare("UPDATE jobs SET status=?, run_at=?, locked_until=NULL, lease_owner=NULL, last_error=?, finished_at=?, updated_at=? WHERE id=?")
     .run(terminal ? "dead" : "failed", runAt, message.slice(0, 2_000), terminal ? now : null, now, id);
   putSyncEvent(db, "job", id, { id, status: terminal ? "dead" : "failed", lastError: message, runAt }, now);
+}
+
+/** Put a leased job back without spending an attempt, e.g. while the model quota recovers. */
+export function deferJob(db: ContentLabDatabase, id: string, runAt: string, reason: string, now = new Date().toISOString()): void {
+  db.prepare("UPDATE jobs SET status='queued', run_at=?, attempts=MAX(attempts-1,0), locked_until=NULL, lease_owner=NULL, last_error=?, updated_at=? WHERE id=?")
+    .run(runAt, reason.slice(0, 2_000), now, id);
+  putSyncEvent(db, "job", id, { id, status: "queued", runAt, lastError: reason }, now);
 }
 
 export function retryJob(db: ContentLabDatabase, id: string, now = new Date().toISOString()): boolean {

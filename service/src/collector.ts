@@ -14,6 +14,9 @@ interface PostRow {
   published_at: string | null; bound_at: string; tracking_state: string; next_capture_at: string | null;
 }
 
+/** Day boundaries for acceleration alerts follow each market's local time. GCC uses Riyadh time. */
+const MARKET_UTC_OFFSET_HOURS: Record<string, number> = { ID: 7, VN: 7, TR: 3, GCC: 3, TH: 7 };
+
 export const postReadModel = (db: ContentLabDatabase, id: string): Record<string, unknown> => {
   const row = db.prepare(`
     SELECT COALESCE(p.site_post_id,p.id) AS id, p.id AS localPostId, p.site_post_id AS sitePostId,
@@ -171,7 +174,7 @@ export function recordSnapshot(
       WHERE post_id=? AND hour_bucket < ? AND views_delta IS NOT NULL
       ORDER BY hour_bucket DESC LIMIT 6
     `).all(post.id, bucket) as Array<{ value: number }>).map((row) => row.value);
-    const offsetHours = post.market?.toUpperCase() === "VN" ? 7 : post.market?.toUpperCase() === "TR" ? 3 : 0;
+    const offsetHours = MARKET_UTC_OFFSET_HOURS[post.market?.toUpperCase() ?? ""] ?? 0;
     const day = new Date(Date.parse(now) + offsetHours * 3_600_000).toISOString().slice(0, 10);
     for (const candidate of evaluateAlerts({ postId: post.id, previousViews: previous.views, currentViews: metrics.views, currentDelta, priorSixDeltas: prior, day })) {
       if (candidate.rule === "acceleration") {

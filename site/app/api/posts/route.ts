@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { MARKET_CODES } from "@/lib/content-lab";
+
 import {
   getD1,
   hashIdentifier,
@@ -15,7 +17,7 @@ export const dynamic = "force-dynamic";
 
 const bindSchema = z.object({
   urls: z.array(z.string().min(1).max(2_048)).min(1).max(50),
-  market: z.string().trim().min(2).max(12).default("VN"),
+  market: z.enum(MARKET_CODES).default("VN"),
   projectTag: z.string().trim().max(80).optional().nullable(),
   passphrase: z.string().max(200).optional(),
 }).strict();

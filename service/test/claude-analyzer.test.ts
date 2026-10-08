@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AnalyzerAuthError, claudeArguments, claudeInput, parseClaudeOutput } from "../src/analyzer/claude.js";
+import { AnalyzerAuthError, AnalyzerQuotaError, claudeArguments, claudeInput, parseClaudeOutput } from "../src/analyzer/claude.js";
+import { loadBrandGlossary } from "../src/analyzer/codex.js";
+import { acceptTranscript } from "../src/analyzer/transcribe.js";
+import { deferJob, enqueueJob, leaseJobs } from "../src/jobs/queue.js";
 import { upsertPost } from "../src/collector.js";
 import { openDatabase } from "../src/db/database.js";
 import { pullRemoteJobs, SiteSyncClient } from "../src/sync/client.js";
@@ -99,6 +102,47 @@ describe("hosted job lease", () => {
     expect(await pullRemoteJobs(db, client)).toBe(1);
     expect(await pullRemoteJobs(db, client)).toBe(0);
     expect(fetchImpl.mock.calls.some(([url]) => String(url).endsWith("/jobs/analyze-2/fail"))).toBe(true);
+    db.close();
+  });
+});
+
+describe("analysis quality inputs", () => {
+  it("waits on an exhausted subscription window instead of failing the post", () => {
+    const limited = JSON.stringify({ type: "result", subtype: "success", is_error: true, result: "Claude AI usage limit reached|1760000000" });
+    expect(() => parseClaudeOutput(limited)).toThrow(AnalyzerQuotaError);
+  });
+
+  it("keeps real speech and drops Whisper text invented over music", () => {
+    expect(acceptTranscript({ text: " Đi từ Yên Bái xuống Hà Nội để gặp em ", language: "vi", segments: [{ no_speech_prob: 0.07 }] }, "small"))
+      .toEqual({ text: "Đi từ Yên Bái xuống Hà Nội để gặp em", language: "vi", model: "small" });
+    expect(acceptTranscript({ text: "Thank you for watching", language: "en", segments: [{ no_speech_prob: 0.92 }] }, "small")).toBeNull();
+    expect(acceptTranscript({ text: "la la la la la la la la la la", language: "vi", segments: [{ no_speech_prob: 0.1 }] }, "small")).toBeNull();
+    expect(acceptTranscript({ text: "", segments: [] }, "small")).toBeNull();
+  });
+
+  it("reads confirmed and unconfirmed brand names from the owner glossary", () => {
+    const dir = mkdtempSync(join(tmpdir(), "glossary-"));
+    dirs.push(dir);
+    writeFileSync(join(dir, "g.json"), JSON.stringify({ brand: "PopUp", confirmed: ["PopUp", ""], unconfirmed: ["Fate Radar"] }));
+    expect(loadBrandGlossary(join(dir, "g.json"))).toEqual({ brand: "PopUp", confirmed: ["PopUp"], unconfirmed: ["Fate Radar"] });
+    expect(loadBrandGlossary(join(dir, "missing.json"))).toBeNull();
+  });
+});
+
+describe("analysis pool queue", () => {
+  it("leases analysis separately from captures and defers without spending an attempt", () => {
+    const db = openDatabase(":memory:");
+    const now = "2026-10-08T00:00:00.000Z";
+    enqueueJob(db, { kind: "analyze", payload: { postId: "p1" }, runAt: now });
+    enqueueJob(db, { kind: "capture", payload: { postId: "p1" }, runAt: now });
+    const [capture] = leaseJobs(db, { workerId: "w", now, excludeKinds: ["analyze"] });
+    expect(capture?.kind).toBe("capture");
+    const [analysis] = leaseJobs(db, { workerId: "w", now, kinds: ["analyze"] });
+    expect(analysis?.kind).toBe("analyze");
+    deferJob(db, analysis!.id, "2026-10-08T00:30:00.000Z", "usage limit", now);
+    expect(db.prepare("SELECT status, attempts, run_at FROM jobs WHERE id=?").get(analysis!.id))
+      .toMatchObject({ status: "queued", attempts: 0, run_at: "2026-10-08T00:30:00.000Z" });
+    expect(leaseJobs(db, { workerId: "w", now, kinds: ["analyze"] })).toHaveLength(0);
     db.close();
   });
 });

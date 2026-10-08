@@ -26,6 +26,9 @@ export interface ServiceConfig {
   workerId: string;
   analyzerProvider: "claude" | "codex";
   claudeModel: string;
+  analyzerConcurrency: number;
+  whisperModel: string | null;
+  brandGlossaryPath: string;
   codexModel: string | null;
   codexConcurrency: number;
   tikwmMinIntervalMs: number;
@@ -77,6 +80,9 @@ export function loadConfig(): ServiceConfig {
     workerId: process.env.CONTENT_LAB_WORKER_ID?.trim() || `mac-${process.pid}`,
     analyzerProvider: analyzerProvider(),
     claudeModel: optional("CLAUDE_MODEL") ?? "claude-opus-5-5",
+    analyzerConcurrency: integer("ANALYZER_CONCURRENCY", 3, 1),
+    whisperModel: optional("WHISPER_MODEL") === "off" ? null : optional("WHISPER_MODEL") ?? "small",
+    brandGlossaryPath: resolve(process.env.CONTENT_LAB_BRAND_GLOSSARY || resolve(repoDir, "docs/brand-glossary.json")),
     codexModel: optional("CODEX_MODEL"),
     codexConcurrency: integer("CODEX_CONCURRENCY", 1, 1),
     tikwmMinIntervalMs: integer("TIKWM_MIN_INTERVAL_MS", 1_250, 0),

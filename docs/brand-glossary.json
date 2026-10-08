@@ -1,0 +1,6 @@
+{
+  "brand": "PopUp",
+  "notes": "Owner-maintained. `confirmed` names prove the post shows or mentions PopUp. `unconfirmed` names appear in posts but have not been confirmed as PopUp; the analyzer must not treat them as proof of brand visibility.",
+  "confirmed": ["PopUp", "Pop Up", "#popup"],
+  "unconfirmed": ["P tím", "紫色 P", "Fate Radar"]
+}

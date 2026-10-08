@@ -8,6 +8,12 @@ export class AnalyzerAuthError extends Error {
   constructor(message: string) { super(message); this.name = "AnalyzerAuthError"; }
 }
 
+/** The subscription's usage window is exhausted; the job should wait, not fail. */
+export class AnalyzerQuotaError extends Error {
+  constructor(message: string) { super(message); this.name = "AnalyzerQuotaError"; }
+}
+
+const QUOTA_EXHAUSTED = /usage limit|limit reached|rate.?limit|resets? (?:at|in)|overloaded|\b429\b|\b529\b/i;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const AUTH_FAILURE = /not logged in|login required|please run \/login|invalid api key|authentication|unauthorized|oauth token|401/i;
 
@@ -57,10 +63,12 @@ export function parseClaudeOutput(stdout: string, stderr = ""): unknown {
   const detail = `${result ? JSON.stringify(result).slice(0, 1_500) : ""}\n${stderr.slice(-1_500)}`.trim();
   if (!result) {
     if (AUTH_FAILURE.test(detail)) throw new AnalyzerAuthError(detail);
+    if (QUOTA_EXHAUSTED.test(detail)) throw new AnalyzerQuotaError(detail);
     throw new Error(`claude returned no result event: ${detail || "empty output"}`);
   }
   if (result.is_error === true || result.subtype !== "success") {
     if (AUTH_FAILURE.test(detail)) throw new AnalyzerAuthError(detail);
+    if (QUOTA_EXHAUSTED.test(detail)) throw new AnalyzerQuotaError(detail);
     throw new Error(`claude analysis failed: ${detail}`);
   }
   if (result.structured_output === undefined || result.structured_output === null) throw new Error("claude did not return structured output");

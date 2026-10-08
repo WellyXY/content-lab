@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { AnalyzerQuotaError } from "./analyzer/claude.js";
 import { CodexAuthError, analyzePost } from "./analyzer/codex.js";
 import { capturePost, ingestPost, recordCodexAuthAlert, syncPostReadModel } from "./collector.js";
 import { loadConfig } from "./config.js";
@@ -7,7 +8,7 @@ import { openDatabase, type ContentLabDatabase } from "./db/database.js";
 import { normalizeTikTokUrl } from "./domain/tiktok-url.js";
 import { createContentLabFeishuBot } from "./feishu/bot.js";
 import { createFeishuWebhookTransport, deliverAlertOutbox, type FeishuAlertTransport } from "./feishu.js";
-import { completeJob, enqueueJob, failJob, leaseJobs, type Job } from "./jobs/queue.js";
+import { completeJob, deferJob, enqueueJob, failJob, leaseJobs, type Job } from "./jobs/queue.js";
 import { TikTokProvider } from "./providers/tiktok.js";
 import { runSchedulerCycle } from "./scheduler.js";
 import { flushSyncOutbox, pullRemoteJobs, SiteSyncClient } from "./sync/client.js";
@@ -103,6 +104,56 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
   throw new Error(`Unsupported job kind: ${job.kind}`);
 }
 
+const QUOTA_PAUSE_MS = 30 * 60_000;
+const ANALYSIS_LEASE_MS = 20 * 60_000;
+const inflightAnalyses = new Set<Promise<void>>();
+let analysisPausedUntil = 0;
+
+async function handleJob(job: Job): Promise<void> {
+  try {
+    await processJob(db, job);
+    completeJob(db, job.id);
+    log("job_completed", { jobId: job.id, kind: job.kind });
+  } catch (error) {
+    if (error instanceof AnalyzerQuotaError) {
+      // The subscription window is exhausted: wait for it instead of burning retries.
+      analysisPausedUntil = Date.now() + QUOTA_PAUSE_MS;
+      deferJob(db, job.id, new Date(analysisPausedUntil).toISOString(), error.message);
+      log("analysis_paused_for_quota", { jobId: job.id, until: new Date(analysisPausedUntil).toISOString() });
+      return;
+    }
+    if (error instanceof CodexAuthError) recordCodexAuthAlert(db, error.message, config.analyzerProvider === "claude" ? "Run `claude` on the Mac and sign in with /login" : "Run `codex login` on the Mac");
+    failJob(db, job.id, error);
+    const state = db.prepare("SELECT status FROM jobs WHERE id=?").get(job.id) as { status: string };
+    if (job.kind === "analyze" && state.status === "dead") {
+      const payload = job.payload as { postId?: string };
+      if (payload.postId) {
+        const now = new Date().toISOString();
+        db.prepare("UPDATE posts SET features_state='features_failed', updated_at=? WHERE id=?").run(now, payload.postId);
+        syncPostReadModel(db, payload.postId, now);
+      }
+    }
+    if ((job.kind === "remote_bind" || job.kind === "remote_analyze") && syncClient && job.syncRemoteId) {
+      try { await syncClient.failJob(job.syncRemoteId, error instanceof Error ? error.message : String(error), state.status !== "dead"); }
+      catch (syncError) { log("site_job_fail_ack_failed", { jobId: job.id, error: syncError instanceof Error ? syncError.message : String(syncError) }); }
+    }
+    log("job_failed", { jobId: job.id, kind: job.kind, status: state.status, error: error instanceof Error ? error.message : String(error) });
+  }
+  // Publish real metadata, metrics and analyses as soon as each job settles.
+  await pushPendingEvents();
+}
+
+/** Fill the analysis pool; each analysis runs alongside captures instead of blocking them. */
+function startAnalyses(): void {
+  if (Date.now() < analysisPausedUntil) return;
+  while (inflightAnalyses.size < config.analyzerConcurrency) {
+    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, kinds: ["analyze"] })[0];
+    if (!job) return;
+    const task: Promise<void> = handleJob(job).finally(() => { inflightAnalyses.delete(task); });
+    inflightAnalyses.add(task);
+  }
+}
+
 export async function runWorkerCycle(): Promise<void> {
   if (syncClient) {
     try { log("site_jobs_pulled", { count: await pullRemoteJobs(db, syncClient) }); }
@@ -110,34 +161,13 @@ export async function runWorkerCycle(): Promise<void> {
   }
   log("scheduler_cycle", { ...runSchedulerCycle(db) });
   await pushPendingEvents();
+  startAnalyses();
   for (let processed = 0; processed < 20; processed += 1) {
-    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: 20 * 60_000 })[0];
+    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, excludeKinds: ["analyze"] })[0];
     if (!job) break;
-    await pushPendingEvents();
-    try {
-      await processJob(db, job);
-      completeJob(db, job.id);
-      log("job_completed", { jobId: job.id, kind: job.kind });
-    } catch (error) {
-      if (error instanceof CodexAuthError) recordCodexAuthAlert(db, error.message, config.analyzerProvider === "claude" ? "Run `claude` on the Mac and sign in with /login" : "Run `codex login` on the Mac");
-      failJob(db, job.id, error);
-      const state = db.prepare("SELECT status FROM jobs WHERE id=?").get(job.id) as { status: string };
-      if (job.kind === "analyze" && state.status === "dead") {
-        const payload = job.payload as { postId?: string };
-        if (payload.postId) {
-          const now = new Date().toISOString();
-          db.prepare("UPDATE posts SET features_state='features_failed', updated_at=? WHERE id=?").run(now, payload.postId);
-          syncPostReadModel(db, payload.postId, now);
-        }
-      }
-      if ((job.kind === "remote_bind" || job.kind === "remote_analyze") && syncClient && job.syncRemoteId) {
-        try { await syncClient.failJob(job.syncRemoteId, error instanceof Error ? error.message : String(error), state.status !== "dead"); }
-        catch (syncError) { log("site_job_fail_ack_failed", { jobId: job.id, error: syncError instanceof Error ? syncError.message : String(syncError) }); }
-      }
-      log("job_failed", { jobId: job.id, kind: job.kind, status: state.status, error: error instanceof Error ? error.message : String(error) });
-    }
-    // Publish real metadata and metrics immediately; later AI jobs can take minutes.
-    await pushPendingEvents();
+    await handleJob(job);
+    // An ingest enqueues its analysis; start it right away.
+    startAnalyses();
   }
   const delivery = await deliverAlertOutbox(db, alertTransports, config.publicBaseUrl);
   if (delivery.delivered > 0 || delivery.failed > 0) log("alert_delivery", delivery);
@@ -162,12 +192,18 @@ async function main(): Promise<void> {
         }
       }
       try { await runWorkerCycle(); } catch (error) { log("worker_cycle_failed", { error: error instanceof Error ? error.stack ?? error.message : String(error) }); }
+      if (once) await Promise.allSettled([...inflightAnalyses]);
       if (once || stopping) break;
-      const due = db.prepare("SELECT 1 FROM jobs WHERE status IN ('queued','failed') AND run_at<=? AND attempts<max_attempts LIMIT 1")
+      // Analyses are refilled between cycles, so only other due work shortens the wait.
+      const due = db.prepare("SELECT 1 FROM jobs WHERE kind != 'analyze' AND status IN ('queued','failed') AND run_at<=? AND attempts<max_attempts LIMIT 1")
         .get(new Date().toISOString());
-      const wait = due ? 1_000 : Math.max(1_000, 30_000 - (Date.now() - started));
-      await new Promise<void>((resolve) => setTimeout(resolve, wait));
+      const until = Date.now() + (due ? 1_000 : Math.max(1_000, 30_000 - (Date.now() - started)));
+      while (!stopping && Date.now() < until) {
+        try { startAnalyses(); } catch (error) { log("analysis_start_failed", { error: error instanceof Error ? error.message : String(error) }); }
+        await new Promise<void>((resolve) => setTimeout(resolve, Math.min(2_000, Math.max(0, until - Date.now()))));
+      }
     } while (!stopping);
+    await Promise.allSettled([...inflightAnalyses]);
   } finally {
     if (feishuBot) {
       try { await feishuBot.disconnect(); } catch (error) { log("feishu_bot_disconnect_failed", { error: error instanceof Error ? error.message : String(error) }); }

@@ -15,6 +15,7 @@ import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { MARKETS, MARKET_CODES } from "@/lib/content-lab";
 
 type QueueJob = {
   id: string;
@@ -94,7 +95,7 @@ export default function BindPage() {
           type: "object",
           properties: {
             urls: { type: "array", minItems: 1, maxItems: 50, items: { type: "string", format: "uri" } },
-            market: { type: "string", enum: ["VN", "TR"] },
+            market: { type: "string", enum: MARKET_CODES },
             projectTag: { type: "string", maxLength: 80 },
           },
           required: ["urls", "market"],
@@ -104,7 +105,7 @@ export default function BindPage() {
         async execute(input) {
           const value = input as { urls?: unknown; market?: unknown; projectTag?: unknown };
           if (!Array.isArray(value.urls) || !value.urls.every((item) => typeof item === "string")) throw new Error("urls 必須是網址陣列");
-          const nextMarket = value.market === "TR" ? "TR" : "VN";
+          const nextMarket = MARKET_CODES.find((code) => code === value.market) ?? "VN";
           const result = await performBind(value.urls, { market: nextMarket, projectTag: typeof value.projectTag === "string" ? value.projectTag : "" });
           setRawUrls(value.urls.join("\n"));
           setMarket(nextMarket);
@@ -166,7 +167,7 @@ export default function BindPage() {
           <CardContent className="space-y-5 pt-6">
             <div className="space-y-2"><div className="flex items-center justify-between gap-3"><Label htmlFor="urls">帖子網址</Label><span className="font-mono text-xs text-muted-foreground">{parsedCount} / 50</span></div><Textarea className="min-h-48 resize-y border-white/10 bg-white/[0.025] font-mono text-[13px] leading-6" id="urls" onChange={(event) => setRawUrls(event.target.value)} placeholder={"https://www.tiktok.com/@creator/video/...\nhttps://vt.tiktok.com/..."} value={rawUrls} /></div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2"><Label>市場</Label><Select onValueChange={setMarket} value={market}><SelectTrigger className="w-full border-white/10 bg-white/[0.025]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="VN">越南 · UTC+7</SelectItem><SelectItem value="TR">土耳其 · UTC+3</SelectItem></SelectContent></Select></div>
+              <div className="space-y-2"><Label>市場</Label><Select onValueChange={setMarket} value={market}><SelectTrigger className="w-full border-white/10 bg-white/[0.025]"><SelectValue /></SelectTrigger><SelectContent>{MARKETS.map((item) => <SelectItem key={item.code} value={item.code}>{item.code} {item.label} · {item.timezone}</SelectItem>)}</SelectContent></Select></div>
               <div className="space-y-2"><Label htmlFor="project">項目標籤</Label><Input className="border-white/10 bg-white/[0.025]" id="project" maxLength={80} onChange={(event) => setProjectTag(event.target.value)} placeholder="例如 Fate Radar" value={projectTag} /></div>
             </div>
             <div className="space-y-2"><Label htmlFor="passphrase">綁定口令（如已啟用）</Label><Input autoComplete="off" className="border-white/10 bg-white/[0.025]" id="passphrase" onChange={(event) => setPassphrase(event.target.value)} placeholder="未設定可留空" type="password" value={passphrase} /></div>

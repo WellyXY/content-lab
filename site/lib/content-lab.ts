@@ -1,3 +1,15 @@
+/** Markets a post can be bound to; the label shows the timezone used for day boundaries. */
+export const MARKETS = [
+  { code: "ID", label: "印尼", timezone: "UTC+7" },
+  { code: "VN", label: "越南", timezone: "UTC+7" },
+  { code: "TR", label: "土耳其", timezone: "UTC+3" },
+  { code: "GCC", label: "海灣地區", timezone: "UTC+3" },
+  { code: "TH", label: "泰國", timezone: "UTC+7" },
+] as const;
+export type MarketCode = (typeof MARKETS)[number]["code"];
+export const MARKET_CODES = MARKETS.map((market) => market.code) as [MarketCode, ...MarketCode[]];
+export const marketLabel = (code: string): string => MARKETS.find((market) => market.code === code)?.label ?? code;
+
 export type WorkerStatus = {
   connected: boolean;
   lastSeenAt: string | null;

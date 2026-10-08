@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { compactNumber, tagLabel, type PostSummary } from "@/lib/content-lab";
+import { MARKETS, compactNumber, tagLabel, type PostSummary } from "@/lib/content-lab";
 
 export default function PostsPage() {
   const [posts, setPosts] = useState<PostSummary[]>([]);
@@ -75,7 +75,7 @@ export default function PostsPage() {
           </div>
           <Select onValueChange={setMarket} value={market}>
             <SelectTrigger className="h-10 w-full border-white/10 bg-white/[0.025]"><SelectValue placeholder="全部市場" /></SelectTrigger>
-            <SelectContent><SelectItem value="all">全部市場</SelectItem><SelectItem value="VN">越南</SelectItem><SelectItem value="TR">土耳其</SelectItem></SelectContent>
+            <SelectContent><SelectItem value="all">全部市場</SelectItem>{MARKETS.map((item) => <SelectItem key={item.code} value={item.code}>{item.code} {item.label}</SelectItem>)}</SelectContent>
           </Select>
           <Select onValueChange={setState} value={state}>
             <SelectTrigger className="h-10 w-full border-white/10 bg-white/[0.025]"><SelectValue placeholder="全部狀態" /></SelectTrigger>
