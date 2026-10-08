@@ -13,7 +13,6 @@
     "worker": "tsx src/worker.ts",
     "worker:once": "tsx src/worker.ts --once",
     "doctor": "tsx src/doctor.ts",
-    "seed": "tsx src/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -78,9 +78,12 @@ export class SiteSyncClient {
 
   async pushEvents(events: SiteSyncEvent[]): Promise<string[]> {
     if (events.length === 0) return [];
-    const result = await this.post<{ accepted?: unknown }>("/api/local-worker/sync", { workerId: this.options.workerId, events }, `sync:${events.map((event) => event.id).join(",")}`);
+    const result = await this.post<{ accepted?: unknown; ignored?: unknown }>("/api/local-worker/sync", { workerId: this.options.workerId, events }, `sync:${events.map((event) => event.id).join(",")}`);
     if (!Array.isArray(result.accepted) || result.accepted.some((id) => typeof id !== "string")) throw new Error("Site sync response is missing accepted event ids");
-    return result.accepted as string[];
+    if (result.ignored !== undefined && (!Array.isArray(result.ignored) || result.ignored.some((id) => typeof id !== "string"))) throw new Error("Site sync response has invalid duplicate event ids");
+    // An acknowledged duplicate was already committed by the Site, often before
+    // a previous HTTP response was lost. It must leave the local retry outbox too.
+    return [...new Set([...(result.accepted as string[]), ...((result.ignored ?? []) as string[])])];
   }
 }
 
@@ -105,12 +108,12 @@ interface OutboxRow {
   id: string; type: SiteSyncEvent["type"]; entity_key: string; occurred_at: string; payload_json: string; attempts: number;
 }
 
-export async function flushSyncOutbox(db: ContentLabDatabase, client: SiteSyncClient, limit = 100): Promise<number> {
+export async function flushSyncOutbox(db: ContentLabDatabase, client: SiteSyncClient, limit = 50): Promise<number> {
   const now = new Date().toISOString();
   const rows = db.prepare(`
     SELECT id, type, entity_key, occurred_at, payload_json, attempts FROM sync_outbox
     WHERE next_attempt_at <= ? ORDER BY occurred_at LIMIT ?
-  `).all(now, Math.max(1, Math.min(limit, 500))) as unknown as OutboxRow[];
+  `).all(now, Math.max(1, Math.min(limit, 50))) as unknown as OutboxRow[];
   if (rows.length === 0) return 0;
   const events: SiteSyncEvent[] = rows.map((row) => ({ id: row.id, type: row.type, entityKey: row.entity_key, occurredAt: row.occurred_at, payload: JSON.parse(row.payload_json) as unknown }));
   try {

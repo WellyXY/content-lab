@@ -30,6 +30,7 @@ export function safeJson<T>(value: unknown, fallback: T): T {
 }
 
 export function integer(value: unknown, fallback = 0): number {
+  if (value === null || value === undefined || value === "") return fallback;
   const next = Number(value);
   return Number.isFinite(next) ? Math.trunc(next) : fallback;
 }
@@ -54,6 +55,7 @@ export function rowToPost(row: Record<string, unknown>): PostSummary {
     postType: nullableString(row.post_type) ?? "video",
     caption: nullableString(row.caption),
     thumbnailUrl: nullableString(row.thumbnail_url),
+    mediaUrl: nullableString(row.media_url),
     publishedAt: nullableString(row.published_at),
     boundAt: String(row.bound_at),
     trackingState: nullableString(row.tracking_state) ?? "active",

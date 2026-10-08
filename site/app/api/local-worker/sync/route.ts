@@ -113,8 +113,8 @@ async function syncPost(db: D1Database, event: SyncEvent) {
   await db.prepare(`INSERT INTO posts (
       id, video_id, url, creator_handle, market, project_tag, post_type, caption, music_title, thumbnail_url,
       published_at, bound_at, tracking_state, analysis_state, next_capture_at, views, likes, comments, shares, saves,
-      delta_24h, source, last_captured_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      delta_24h, source, last_captured_at, updated_at, media_url
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       video_id = excluded.video_id, url = excluded.url, creator_handle = excluded.creator_handle,
       market = excluded.market, project_tag = excluded.project_tag, post_type = excluded.post_type,
@@ -123,7 +123,7 @@ async function syncPost(db: D1Database, event: SyncEvent) {
       analysis_state = excluded.analysis_state, next_capture_at = excluded.next_capture_at,
       views = excluded.views, likes = excluded.likes, comments = excluded.comments, shares = excluded.shares,
       saves = excluded.saves, delta_24h = excluded.delta_24h, source = excluded.source,
-      last_captured_at = excluded.last_captured_at, updated_at = excluded.updated_at`).bind(
+      last_captured_at = excluded.last_captured_at, updated_at = excluded.updated_at, media_url = excluded.media_url`).bind(
       hostedPostId,
       nullableString(value(["videoId", "video_id"], existing?.video_id)),
       url,
@@ -148,6 +148,7 @@ async function syncPost(db: D1Database, event: SyncEvent) {
       nullableString(value(["source"], existing?.source)),
       nullableString(value(["lastCapturedAt", "last_captured_at"], existing?.last_captured_at)),
       now,
+      nullableString(value(["mediaUrl", "media_url"], existing?.media_url)),
     ).run();
   await db.prepare(`INSERT INTO post_aliases (source_key, post_id, created_at) VALUES (?, ?, ?)
     ON CONFLICT(source_key) DO UPDATE SET post_id = excluded.post_id`)
@@ -170,13 +171,14 @@ async function syncSnapshot(db: D1Database, event: SyncEvent) {
   const comments = nullableInteger(pick(payload, "comments"));
   const shares = nullableInteger(pick(payload, "shares"));
   const saves = nullableInteger(pick(payload, "saves"));
-  const ok = pick(payload, "ok") === false ? 0 : 1;
+  const rawOk = pick(payload, "ok");
+  const ok = rawOk === false || rawOk === 0 ? 0 : 1;
   const previous = ok && views != null
     ? await db.prepare(`SELECT views FROM metric_snapshots WHERE post_id = ? AND ok = 1 AND datetime(captured_at) < datetime(?)
         ORDER BY datetime(captured_at) DESC LIMIT 1`).bind(postId, capturedAt).first<Record<string, unknown>>()
     : null;
   const viewsDelta = nullableInteger(pick(payload, "viewsDelta", "views_delta"))
-    ?? (previous ? Math.max(0, views - integer(previous.views)) : null);
+    ?? (previous && views != null ? Math.max(0, views - integer(previous.views)) : null);
   await db.prepare(`INSERT OR IGNORE INTO metric_snapshots (
       id, post_id, captured_at, views, likes, comments, shares, saves, views_delta, coverage, source, ok, error
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(

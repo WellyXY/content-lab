@@ -17,6 +17,12 @@ const statusNumber = (value: unknown): number | null => {
   return Number.isFinite(parsed) ? Math.round(parsed) : null;
 };
 
+// TikWM can return origin-relative media paths as well as absolute CDN URLs.
+const mediaUrl = (value: unknown): string | null => {
+  const raw = text(value);
+  return raw ? new URL(raw, "https://www.tikwm.com").toString() : null;
+};
+
 class Throttle {
   private nextAt = 0;
   private tail: Promise<void> = Promise.resolve();
@@ -63,7 +69,9 @@ export class TikTokProvider implements MetricsProvider {
   }
 
   async fetchPost(inputUrl: string): Promise<ProviderResult> {
-    const url = await expandTikTokUrl(inputUrl, this.fetchImpl);
+    const normalized = normalizeTikTokUrl(inputUrl);
+    // TikTok may block local short-link resolution while TikWM can still resolve it.
+    const url = await expandTikTokUrl(normalized, this.fetchImpl).catch(() => normalized);
     try {
       return await this.fetchTikwm(url);
     } catch (primaryError) {
@@ -112,12 +120,16 @@ export class TikTokProvider implements MetricsProvider {
         const createTime = number(data.create_time);
         const images = Array.isArray(data.images) ? data.images : [];
         const isPhoto = images.length > 0;
+        const handle = text(author.unique_id);
+        const canonicalUrl = handle
+          ? `https://www.tiktok.com/@${encodeURIComponent(handle)}/${isPhoto ? "photo" : "video"}/${videoId}`
+          : normalizeTikTokUrl(url);
         return {
           source: "tikwm",
           metadata: {
-            videoId, url: normalizeTikTokUrl(url), authorId: text(author.id), authorHandle: text(author.unique_id) ?? text(author.nickname) ?? "unknown",
+            videoId, url: canonicalUrl, authorId: text(author.id), authorHandle: handle ?? text(author.nickname) ?? "unknown",
             caption: text(data.title) ?? "", type: isPhoto ? "photo" : "video", durationS: number(data.duration),
-            musicTitle: text(music.title), coverUrl: text(data.cover), mediaUrl: isPhoto ? text(images[0]) : text(data.hdplay) ?? text(data.play) ?? text(data.wmplay),
+            musicTitle: text(music.title), coverUrl: mediaUrl(data.cover), mediaUrl: isPhoto ? mediaUrl(images[0]) : mediaUrl(data.hdplay) ?? mediaUrl(data.play) ?? mediaUrl(data.wmplay),
             publishedAt: createTime === null ? null : new Date(createTime * 1_000).toISOString(),
           },
           metrics: { views: metrics.views, likes: metrics.likes, comments: metrics.comments, shares: metrics.shares, saves: metrics.saves },
@@ -141,6 +153,9 @@ export class TikTokProvider implements MetricsProvider {
       throw new ProviderError(`TikTok oEmbed returned ${response.status}`, { retryable: !terminal, unavailableReason: terminal ? "private_or_deleted" : "upstream" });
     }
     const data = object(body);
+    if (typeof data.title !== "string" || (!text(data.author_name) && !text(data.author_unique_id)) || (!text(data.thumbnail_url) && !text(data.html))) {
+      throw new ProviderError("TikTok oEmbed response is missing post metadata", { retryable: true, unavailableReason: "invalid_response" });
+    }
     const videoId = extractVideoId(url) ?? text(data.embed_product_id) ?? `url-${createHash("sha256").update(url).digest("hex").slice(0, 24)}`;
     const metadata: PostMetadata = {
       videoId, url: normalizeTikTokUrl(url), authorId: null, authorHandle: text(data.author_unique_id) ?? text(data.author_name) ?? "unknown",

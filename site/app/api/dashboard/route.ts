@@ -1,13 +1,12 @@
-import { createDemoDashboard, type DashboardData } from "@/lib/content-lab";
-import { getD1, integer, rowToAlert, rowToPost } from "@/lib/server/content-db";
+import { type DashboardData } from "@/lib/content-lab";
+import { getD1, integer, jsonError, rowToAlert, rowToPost } from "@/lib/server/content-db";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
     const db = getD1();
-    const [countResult, totalsResult, previousResult, jobsResult, captureResult, workerResult, trendResult, moversResult, alertsResult, marketsResult] = await db.batch([
-      db.prepare("SELECT COUNT(*) AS count FROM posts"),
+    const [totalsResult, previousResult, jobsResult, captureResult, workerResult, trendResult, moversResult, alertsResult, marketsResult] = await db.batch([
       db.prepare(`SELECT
         COALESCE(SUM(CASE WHEN captured_at >= datetime('now', '-7 days') AND ok = 1 THEN MAX(views_delta, 0) ELSE 0 END), 0) AS views_7d,
         (SELECT COUNT(*) FROM posts WHERE tracking_state IN ('active', 'slow', 'daily')) AS active_posts,
@@ -29,10 +28,6 @@ export async function GET() {
     const lastSeenAt = typeof worker?.last_seen_at === "string" ? worker.last_seen_at : null;
     const workerConnected = lastSeenAt ? Date.now() - new Date(lastSeenAt).getTime() < 480_000 : false;
     const workerStatus = { connected: workerConnected, lastSeenAt, queueDepth: integer(worker?.queue_depth) };
-    const count = integer((countResult.results[0] as Record<string, unknown> | undefined)?.count);
-    if (count === 0) {
-      return Response.json({ ...createDemoDashboard(), worker: workerStatus }, { headers: { "cache-control": "no-store" } });
-    }
 
     const totals = (totalsResult.results[0] ?? {}) as Record<string, unknown>;
     const previous = (previousResult.results[0] ?? {}) as Record<string, unknown>;
@@ -60,6 +55,6 @@ export async function GET() {
     return Response.json(response, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     console.error("dashboard read failed", error);
-    return Response.json(createDemoDashboard(), { headers: { "cache-control": "no-store" } });
+    return jsonError("暫時無法讀取總覽，請稍後重試", 503);
   }
 }

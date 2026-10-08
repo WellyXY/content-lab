@@ -1,9 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { evaluateAlerts } from "../src/domain/alerts.js";
 import { deriveHourlyRows } from "../src/domain/hourly.js";
 import { cadenceForPost } from "../src/domain/schedule.js";
-import { normalizeTikTokUrl } from "../src/domain/tiktok-url.js";
+import { expandTikTokUrl, normalizeTikTokUrl } from "../src/domain/tiktok-url.js";
 
 describe("TikTok URL boundary", () => {
   it("accepts supported TikTok URLs and removes tracking parameters", () => {
@@ -16,6 +16,21 @@ describe("TikTok URL boundary", () => {
   it("rejects lookalike hosts and non-HTTP protocols", () => {
     expect(() => normalizeTikTokUrl("https://tiktok.com.evil.test/@x/video/1")).toThrow(/TikTok/);
     expect(() => normalizeTikTokUrl("file:///etc/passwd")).toThrow(/HTTPS/);
+    expect(() => normalizeTikTokUrl("https://user:password@www.tiktok.com/@a/video/7412345678901234567")).toThrow(/credentials/);
+    expect(() => normalizeTikTokUrl("https://www.tiktok.com:8443/@a/video/7412345678901234567")).toThrow(/port/);
+  });
+
+  it("resolves chained short links including tiktok.com/t URLs", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: "https://vm.tiktok.com/ZSabc123/" } }))
+      .mockResolvedValueOnce(new Response(null, { status: 301, headers: { location: "https://www.tiktok.com/@creator/video/7412345678901234567?tracking=1" } }));
+    expect(await expandTikTokUrl("https://www.tiktok.com/t/ZSxyz456/", fetchImpl)).toBe("https://www.tiktok.com/@creator/video/7412345678901234567");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a short-link redirect outside TikTok", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 302, headers: { location: "https://example.com/" } }));
+    await expect(expandTikTokUrl("https://vt.tiktok.com/ZSabc123/", fetchImpl)).rejects.toThrow(/TikTok/);
   });
 });
 

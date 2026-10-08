@@ -19,7 +19,8 @@ export const postReadModel = (db: ContentLabDatabase, id: string): Record<string
     SELECT COALESCE(p.site_post_id,p.id) AS id, p.id AS localPostId, p.site_post_id AS sitePostId,
       p.video_id AS videoId, p.url, p.market, p.project_tag AS projectTag,
       p.type, p.duration_s AS durationS, p.caption, p.music_title AS musicTitle,
-      p.cover_url AS coverUrl, p.published_at AS publishedAt, p.bound_at AS boundAt,
+      p.cover_url AS coverUrl, p.media_url AS mediaUrl, p.published_at AS publishedAt, p.bound_at AS boundAt,
+      p.bound_by AS boundBy,
       p.tracking_state AS trackingState, p.next_capture_at AS nextCaptureAt,
       p.features_state AS featuresState, c.handle AS creator
     FROM posts p LEFT JOIN creators c ON c.id=p.creator_id WHERE p.id=?

@@ -12,11 +12,11 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { compactNumber, demoPosts, tagLabel, type PostSummary } from "@/lib/content-lab";
+import { compactNumber, tagLabel, type PostSummary } from "@/lib/content-lab";
 
 export default function PostsPage() {
-  const [posts, setPosts] = useState<PostSummary[]>(demoPosts);
-  const [mode, setMode] = useState<"live" | "demo">("demo");
+  const [posts, setPosts] = useState<PostSummary[]>([]);
+  const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [market, setMarket] = useState("all");
@@ -25,15 +25,17 @@ export default function PostsPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/posts", { cache: "no-store", signal: controller.signal })
+    const refresh = () => fetch("/api/posts", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("posts unavailable");
-        return response.json() as Promise<{ mode: "live" | "demo"; posts: PostSummary[] }>;
+        return response.json() as Promise<{ mode: "live"; posts: PostSummary[] }>;
       })
-      .then((result) => { setPosts(result.posts); setMode(result.mode); })
-      .catch(() => undefined)
+      .then((result) => { setPosts(result.posts); setError(false); })
+      .catch(() => { if (!controller.signal.aborted) setError(true); })
       .finally(() => setLoading(false));
-    return () => controller.abort();
+    void refresh();
+    const timer = window.setInterval(refresh, 15_000);
+    return () => { controller.abort(); window.clearInterval(timer); };
   }, []);
 
   const filtered = useMemo(() => {
@@ -61,7 +63,6 @@ export default function PostsPage() {
           <p className="mt-2 text-sm text-muted-foreground sm:text-base">依增速、累計播放與實驗性排名找到值得追的內容。</p>
         </div>
         <div className="flex items-center gap-2">
-          {mode === "demo" ? <Badge className="border-amber-300/20 bg-amber-300/8 text-amber-200" variant="outline">示範資料</Badge> : null}
           <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{filtered.length} 條</Badge>
         </div>
       </div>
@@ -93,7 +94,7 @@ export default function PostsPage() {
               <TableBody>{filtered.map((post) => <PostRow key={post.id} post={post} />)}</TableBody>
             </Table>
           ) : (
-            <Empty className="border-0 py-24"><EmptyHeader><EmptyMedia variant="icon"><Search /></EmptyMedia><EmptyTitle>沒有符合條件的帖子</EmptyTitle><EmptyDescription>調整篩選，或綁定一條新的 TikTok 連結。</EmptyDescription></EmptyHeader></Empty>
+            <Empty className="border-0 py-24"><EmptyHeader><EmptyMedia variant="icon"><Search /></EmptyMedia><EmptyTitle>{error ? "暫時無法讀取帖子" : posts.length ? "沒有符合條件的帖子" : "尚未加入真實帖子"}</EmptyTitle><EmptyDescription>{error ? "請重新整理重試，系統不會以示範內容取代資料。" : "匯入 Excel／CSV 或貼上 TikTok 連結，開始採集真實數據。"}</EmptyDescription></EmptyHeader></Empty>
           )}
         </CardContent>
       </Card>
@@ -117,8 +118,8 @@ function PostRow({ post }: { post: PostSummary }) {
         </div>
       </TableCell>
       <TableCell><p className="font-mono text-xs font-semibold">{post.market}</p><p className="mt-1 max-w-32 truncate text-xs text-muted-foreground">{post.projectTag ?? "未分類"}</p></TableCell>
-      <TableCell className="text-right font-mono font-semibold">{compactNumber(post.views)}</TableCell>
-      <TableCell className="text-right"><span className="font-mono font-semibold text-cyan-200">+{compactNumber(post.delta24h)}</span></TableCell>
+      <TableCell className="text-right font-mono font-semibold">{compactNumber(post.lastCapturedAt ? post.views : null)}</TableCell>
+      <TableCell className="text-right"><span className="font-mono font-semibold text-cyan-200">{post.lastCapturedAt ? `+${compactNumber(post.delta24h)}` : "—"}</span></TableCell>
       <TableCell className="hidden lg:table-cell"><div className="flex max-w-56 flex-wrap gap-1.5">{post.hookType ? <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{tagLabel(post.hookType)}</Badge> : null}{post.topic ? <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{tagLabel(post.topic)}</Badge> : null}{post.rankPosition ? <Badge className="border-primary/15 bg-primary/8 text-primary" variant="outline">#{post.rankPosition}/{post.rankTotal}</Badge> : null}</div></TableCell>
       <TableCell className="hidden pr-5 text-right sm:table-cell"><Badge className={status.className} variant="outline">{status.label}</Badge><div className="mt-1.5 flex items-center justify-end gap-1 text-[11px] text-muted-foreground"><Clock3 className="size-3" /><RelativeTime value={post.lastCapturedAt} /></div></TableCell>
     </TableRow>

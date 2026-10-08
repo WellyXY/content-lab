@@ -1,5 +1,6 @@
-import { createDemoDetail, createDemoPosts, type PostDetailData } from "@/lib/content-lab";
+import { type PostDetailData } from "@/lib/content-lab";
 import { getD1, jsonError, rowToAlert, rowToFeature, rowToPost, rowToPrediction, rowToSnapshot } from "@/lib/server/content-db";
+import { postKeyframes } from "@/lib/server/media-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -7,8 +8,7 @@ type Context = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, context: Context) {
   const { id } = await context.params;
-  const demoPost = createDemoPosts().find((post) => post.id === id);
-  if (demoPost) return Response.json({ ...createDemoDetail(), post: demoPost });
+  if (id.startsWith("demo-")) return jsonError("示範資料已移除，請返回真實帖子列表", 404);
   if (!id || id.length > 100) return jsonError("帖子 ID 不正確", 400);
 
   try {
@@ -29,7 +29,11 @@ export async function GET(_request: Request, context: Context) {
     ]);
     const postRow = postResult.results[0] as Record<string, unknown> | undefined;
     if (!postRow) return jsonError("找不到這條帖子", 404);
+    let mediaError: string | null = null;
+    const keyframes = await postKeyframes(id).catch(() => { mediaError = "關鍵幀暫時無法讀取"; return []; });
     const response: PostDetailData = {
+      keyframes,
+      mediaError,
       post: rowToPost(postRow),
       snapshots: snapshotsResult.results.map((row) => rowToSnapshot(row as Record<string, unknown>)),
       features: rowToFeature(featureResult.results[0] as Record<string, unknown> | undefined ?? null),

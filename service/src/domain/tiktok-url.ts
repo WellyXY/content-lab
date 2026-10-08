@@ -14,8 +14,7 @@ export function normalizeTikTokUrl(input: string): string {
   }
   if (url.protocol !== "https:") throw new Error("Only HTTPS TikTok URLs are accepted");
   if (!isTikTokHost(url.hostname)) throw new Error("Only TikTok URLs are accepted");
-  url.username = "";
-  url.password = "";
+  if (url.username || url.password || (url.port && url.port !== "443")) throw new Error("TikTok URLs cannot contain credentials or a custom port");
   url.search = "";
   url.hash = "";
   url.hostname = url.hostname.toLowerCase();
@@ -24,7 +23,8 @@ export function normalizeTikTokUrl(input: string): string {
 }
 
 export function isShortTikTokUrl(input: string): boolean {
-  return SHORT_HOSTS.has(new URL(normalizeTikTokUrl(input)).hostname);
+  const url = new URL(normalizeTikTokUrl(input));
+  return SHORT_HOSTS.has(url.hostname) || /^\/t\/[A-Za-z0-9]+\/?$/.test(url.pathname);
 }
 
 export function extractVideoId(input: string): string | null {
@@ -38,15 +38,20 @@ export async function expandTikTokUrl(input: string, fetchImpl: typeof fetch = f
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10_000);
   try {
-    const response = await fetchImpl(normalized, {
-      method: "GET",
-      redirect: "manual",
-      signal: controller.signal,
-      headers: { "user-agent": "ContentLab/0.1" },
-    });
-    const location = response.headers.get("location");
-    if (!location) throw new Error(`TikTok short URL returned ${response.status} without a redirect`);
-    return normalizeTikTokUrl(new URL(location, normalized).toString());
+    let current = normalized;
+    for (let redirect = 0; redirect < 5; redirect += 1) {
+      const response = await fetchImpl(current, {
+        method: "GET",
+        redirect: "manual",
+        signal: controller.signal,
+        headers: { "user-agent": "ContentLab/0.1" },
+      });
+      const location = response.headers.get("location");
+      if (!location || response.status < 300 || response.status >= 400) throw new Error(`TikTok short URL returned ${response.status} without a redirect`);
+      current = normalizeTikTokUrl(new URL(location, current).toString());
+      if (extractVideoId(current)) return current;
+    }
+    throw new Error("TikTok short URL exceeded the redirect limit");
   } finally {
     clearTimeout(timer);
   }

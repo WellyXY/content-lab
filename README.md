@@ -4,6 +4,10 @@ TikTok 素材監控、爆量報警、Agent 打標與相對排名。公開前端�
 
 公開頁面：<https://content-lab-welly.biii38839.chatgpt.site>
 
+正式頁面僅顯示真實資料：空資料與讀取失敗不會替換成示範內容，原有 demo 路由與 synthetic seed 已移除。2026-10-08 首次匯入規格引用的 13 條 FrameLab VN 真實連結；來源及逐條 Git 行號見 [`docs/source-imports/`](docs/source-imports/)。只匯入網址，播放數與媒體由 TikWM 重新取得，沒有匯入舊分析或補造歷史。
+
+Excel/CSV 入口在 `/bind`：XLSX 讀取全部工作表、提取並去重 TikTok 網址，再以頁面選定的市場／項目送出。單次超過 50 條會要求分批，不會默默截斷。Git 未包含原始 Excel 工作簿，已保留可重用的來源 CSV；本機 CLI 另支援逐列市場與來源欄位。
+
 ## 架構
 
 ```text
@@ -52,6 +56,7 @@ npm run worker
 - 綁定：貼網址或匯入 CSV/XLSX；TikTok 網域嚴格驗證、去重、每 IP/每日/活躍量限額。
 - 採集：TikWM 節流與重試，TikTok oEmbed 只作 metadata-only fallback，不捏造指標。
 - 分析：ffmpeg 抽幀，Codex read-only/ephemeral 執行，taxonomy v3 二次驗證。
+- 媒體：影片播放器與 TikTok 官方嵌入備援；本機產生的關鍵幀經驗證後上傳 GPT Site 儲存，AI 尚在分析時也可查看圖片。
 - 信號：里程碑、加速、採集失敗、Codex 登入失效與可選 Feishu outbox。
 - 同步：D1 工作租約、事件去重、hosted/local post ID 關聯，以及本機 exponential-backoff outbox。
 

@@ -14,27 +14,31 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
-import { compactNumber, demoDetail, tagLabel, type PostDetailData } from "@/lib/content-lab";
+import { compactNumber, tagLabel, type PostDetailData } from "@/lib/content-lab";
 
 const chartConfig = { views: { label: "累計 VV", color: "var(--chart-2)" } } satisfies ChartConfig;
 
 export default function PostDetailPage() {
   const params = useParams<{ id: string }>();
   const [data, setData] = useState<PostDetailData | null>(null);
+  const [playbackFailed, setPlaybackFailed] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`/api/posts/${encodeURIComponent(params.id)}`, { cache: "no-store", signal: controller.signal })
+    const refresh = () => fetch(`/api/posts/${encodeURIComponent(params.id)}`, { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
-        if (!response.ok) throw new Error("detail unavailable");
+        if (!response.ok) throw new Error(response.status === 404 ? "這條帖子不存在，示範資料已移除。" : "暫時無法讀取帖子，請稍後重試。");
         return response.json() as Promise<PostDetailData>;
       })
       .then(setData)
-      .catch(() => { if (params.id.startsWith("demo-")) setData({ ...demoDetail, post: demoDetail.post }); })
+      .catch((error) => { if (!controller.signal.aborted) setLoadError(error.message); })
       .finally(() => setLoading(false));
-    return () => controller.abort();
+    void refresh();
+    const timer = window.setInterval(refresh, 15_000);
+    return () => { controller.abort(); window.clearInterval(timer); };
   }, [params.id]);
 
   const engagement = useMemo(() => {
@@ -43,11 +47,14 @@ export default function PostDetailPage() {
   }, [data]);
 
   async function retryAnalysis() {
-    if (!data || data.post.id.startsWith("demo-")) { toast.info("示範帖子不會建立真實分析工作"); return; }
+    if (!data) return;
     setRetrying(true);
     try {
       const response = await fetch(`/api/posts/${encodeURIComponent(data.post.id)}`, { method: "POST" });
-      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? "重新排隊失敗");
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(result.error ?? "重新排隊失敗");
+      }
       toast.success("已重新加入分析佇列");
       setData((current) => current ? { ...current, post: { ...current.post, analysisState: "queued" } } : current);
     } catch (error) {
@@ -56,9 +63,11 @@ export default function PostDetailPage() {
   }
 
   if (loading) return <DetailSkeleton />;
-  if (!data) return <Empty className="min-h-[60vh] border-white/8"><EmptyHeader><EmptyMedia variant="icon"><Film /></EmptyMedia><EmptyTitle>找不到這條帖子</EmptyTitle><EmptyDescription>它可能尚未同步，或連結已失效。</EmptyDescription></EmptyHeader><Button asChild variant="outline"><Link href="/posts">返回帖子列表</Link></Button></Empty>;
+  if (!data) return <Empty className="min-h-[60vh] border-white/8"><EmptyHeader><EmptyMedia variant="icon"><Film /></EmptyMedia><EmptyTitle>找不到這條帖子</EmptyTitle><EmptyDescription>{loadError ?? "它可能尚未同步，或連結已失效。"}</EmptyDescription></EmptyHeader><Button asChild variant="outline"><Link href="/posts">返回帖子列表</Link></Button></Empty>;
 
   const post = data.post;
+  const frames = data.keyframes ?? data.features?.keyframes ?? [];
+  const videoId = post.url.match(/\/(?:video|photo)\/(\d+)/)?.[1];
   const prediction = data.predictions[0];
   const tagEntries = Object.entries(data.features?.tags ?? {});
 
@@ -72,7 +81,7 @@ export default function PostDetailPage() {
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{post.market}</Badge>
             {post.projectTag ? <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{post.projectTag}</Badge> : null}
-            <Badge className={post.analysisState === "complete" ? "border-primary/20 bg-primary/8 text-primary" : "border-amber-300/20 bg-amber-300/8 text-amber-200"} variant="outline">{post.analysisState === "complete" ? "分析完成" : "分析處理中"}</Badge>
+            <Badge className={post.analysisState === "complete" ? "border-primary/20 bg-primary/8 text-primary" : "border-amber-300/20 bg-amber-300/8 text-amber-200"} variant="outline">{post.analysisState === "complete" ? "分析完成" : post.analysisState === "failed" ? "分析失敗，可重試" : "等待分析結果"}</Badge>
             <span className="flex items-center gap-1 text-xs text-muted-foreground"><Clock3 className="size-3.5" /><RelativeTime value={post.lastCapturedAt} /></span>
           </div>
         </div>
@@ -82,12 +91,16 @@ export default function PostDetailPage() {
         </div>
       </div>
 
+      <Card className="mb-4 border-white/8 bg-card/80 shadow-none">
+        <CardHeader><CardTitle className="text-lg">原始內容</CardTitle><CardDescription>來自 TikTok 的真實貼文；平台限制播放時可開啟原始連結。</CardDescription></CardHeader>
+        <CardContent>{post.postType === "video" && post.mediaUrl && !playbackFailed ? <video className="mx-auto max-h-[650px] w-full max-w-[430px] rounded-lg bg-black" controls playsInline preload="metadata" poster={post.thumbnailUrl ?? undefined} src={post.mediaUrl} onError={() => setPlaybackFailed(true)} aria-label="原始影片" /> : videoId ? <iframe className="mx-auto h-[650px] w-full max-w-[370px] rounded-lg border-0 bg-black" src={`https://www.tiktok.com/player/v1/${videoId}`} title="TikTok 原始內容" allow="fullscreen; autoplay; encrypted-media" allowFullScreen loading="lazy" /> : <a className="text-primary underline" href={post.url} target="_blank" rel="noreferrer">在 TikTok 開啟原始內容</a>}</CardContent>
+      </Card>
       <section aria-label="帖子指標" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <MiniMetric icon={Play} label="累計 VV" value={compactNumber(post.views)} />
-        <MiniMetric icon={ThumbsUp} label="讚" value={compactNumber(post.likes)} />
-        <MiniMetric icon={MessageCircle} label="留言" value={compactNumber(post.comments)} />
-        <MiniMetric icon={Share2} label="分享" value={compactNumber(post.shares)} />
-        <MiniMetric icon={Sparkles} label="互動率" value={`${engagement.toFixed(2)}%`} />
+        <MiniMetric icon={Play} label="累計 VV" value={compactNumber(post.lastCapturedAt ? post.views : null)} />
+        <MiniMetric icon={ThumbsUp} label="讚" value={compactNumber(post.lastCapturedAt ? post.likes : null)} />
+        <MiniMetric icon={MessageCircle} label="留言" value={compactNumber(post.lastCapturedAt ? post.comments : null)} />
+        <MiniMetric icon={Share2} label="分享" value={compactNumber(post.lastCapturedAt ? post.shares : null)} />
+        <MiniMetric icon={Sparkles} label="互動率" value={post.lastCapturedAt ? `${engagement.toFixed(2)}%` : "—"} />
       </section>
 
       <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(330px,.65fr)]">
@@ -143,7 +156,7 @@ export default function PostDetailPage() {
       <Card className="mt-4 border-white/8 bg-card/80 shadow-none">
         <CardHeader className="border-b border-white/8 pb-5"><CardTitle className="text-lg">關鍵幀</CardTitle><CardDescription>本機 ffmpeg 抽幀後供 Codex 分析</CardDescription></CardHeader>
         <CardContent className="pt-6">
-          {data.features?.keyframes.length ? <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">{data.features.keyframes.map((frame, index) => <figure className="overflow-hidden rounded-lg border border-white/8 bg-black" key={frame}><img alt={`關鍵幀 ${index + 1}`} className="aspect-[9/16] h-full w-full object-cover" loading="lazy" src={frame} /><figcaption className="sr-only">關鍵幀 {index + 1}</figcaption></figure>)}</div> : <Empty className="border-dashed border-white/8 py-12"><EmptyHeader><EmptyMedia variant="icon"><Film /></EmptyMedia><EmptyTitle>關鍵幀留在本機</EmptyTitle><EmptyDescription>第一版只同步分析結果；之後可接 R2 顯示壓縮後的關鍵幀。</EmptyDescription></EmptyHeader></Empty>}
+          {frames.length ? <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">{frames.map((frame, index) => <figure className="overflow-hidden rounded-lg border border-white/8 bg-black" key={frame}><img alt={`關鍵幀 ${index + 1}`} className="aspect-[9/16] h-full w-full object-cover" loading="lazy" src={frame} /><figcaption className="sr-only">關鍵幀 {index + 1}</figcaption></figure>)}</div> : <Empty className="border-dashed border-white/8 py-12"><EmptyHeader><EmptyMedia variant="icon"><Film /></EmptyMedia><EmptyTitle>{data.mediaError ?? "尚無關鍵幀"}</EmptyTitle><EmptyDescription>{post.analysisState === "failed" ? "媒體取得或分析失敗，請查看處理佇列並重試。" : "本機取得媒體並抽幀後，圖片會同步顯示在這裡。"}</EmptyDescription></EmptyHeader></Empty>}
         </CardContent>
       </Card>
 

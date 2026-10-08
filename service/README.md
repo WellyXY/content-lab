@@ -9,12 +9,22 @@ cd service
 npm install
 cp .env.example .env  # load it with your preferred process supervisor
 npm run doctor
-npm run seed          # optional, synthetic data only
 npm run dev           # web API, 127.0.0.1:4320
 npm run worker        # scheduler, jobs, Codex, alerts and outbound sync
 ```
 
 Useful one-shot commands are `npm run worker:once`, `npm test`, and `npm run build`. The service does not read `.env` itself; LaunchAgent or a shell wrapper should supply environment variables. Runtime data lives under `../var/` by default and is gitignored.
+
+### Import existing source URLs
+
+The public bind page supports Excel/CSV import. For a trusted local CSV manifest, preview the exact normalized URLs and provenance before enqueueing:
+
+```bash
+npx tsx src/import-csv.ts ../docs/source-imports/framelab-vn.csv --dry-run
+npx tsx src/import-csv.ts ../docs/source-imports/framelab-vn.csv --enqueue
+```
+
+The local importer requires `url` and accepts `market`, `project_tag`, and `source` columns. It defaults to dry-run, validates the entire manifest, deduplicates tracking variants, and records the source filename/row/link in `bound_by`. It only queues URL collection: old metric or analysis columns are ignored. Current counts, capture timestamps, and provider provenance come from the real collector. Repeating the same manifest reuses its existing jobs. This trusted local command does not use the public rate-limit budget.
 
 This Mac also uses the checked-in `launchd/` definitions for crash restart and login startup. The worker wrapper reads its pairing token from the `com.welly.content-lab.site-sync` generic-password item in the login Keychain; the secret is never stored in this repository.
 

@@ -13,6 +13,7 @@ export const posts = sqliteTable(
     caption: text("caption"),
     musicTitle: text("music_title"),
     thumbnailUrl: text("thumbnail_url"),
+    mediaUrl: text("media_url"),
     publishedAt: text("published_at"),
     boundAt: text("bound_at").notNull(),
     trackingState: text("tracking_state").notNull().default("active"),

@@ -7,4 +7,4 @@ export CONTENT_LAB_WORKER_ID="mac-welly-content-lab"
 export SITE_SYNC_TOKEN="$(/usr/bin/security find-generic-password -w -a welly -s com.welly.content-lab.site-sync)"
 
 cd "/Users/welly/Documents/Codex/Projects/Pop Up agent/content-lab/service"
-exec /opt/homebrew/bin/npm run worker
+exec /opt/homebrew/bin/node --import tsx src/worker.ts

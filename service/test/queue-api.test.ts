@@ -19,6 +19,15 @@ afterEach(() => {
 });
 
 describe("durable job queue", () => {
+  it("ingests real metadata before slow analysis jobs and excludes future work", () => {
+    const db = testDb();
+    enqueueJob(db, { kind: "analyze", payload: { postId: "p1" }, runAt: "2026-10-08T00:00:00.000Z" });
+    enqueueJob(db, { kind: "ingest", payload: { url: "https://www.tiktok.com/@a/video/7412345678901234567" }, runAt: "2026-10-08T00:00:01.000Z" });
+    enqueueJob(db, { kind: "remote_bind", payload: {}, runAt: "2026-10-09T00:00:00.000Z" });
+    expect(leaseJobs(db, { now: "2026-10-08T00:00:02.000Z", workerId: "a", limit: 3 }).map((job) => job.kind)).toEqual(["ingest", "analyze"]);
+    db.close();
+  });
+
   it("leases a due job once and recovers it after lease expiry", () => {
     const db = testDb();
     enqueueJob(db, { kind: "capture", payload: { postId: "p1" }, runAt: "2026-10-08T00:00:00.000Z", idempotencyKey: "capture:p1:0" });

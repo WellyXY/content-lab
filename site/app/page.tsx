@@ -12,28 +12,33 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { compactNumber, demoDashboard, percentChange, type DashboardData } from "@/lib/content-lab";
+import { compactNumber, emptyDashboard, percentChange, type DashboardData } from "@/lib/content-lab";
 
 const chartConfig = {
   views: { label: "新增 VV", color: "var(--chart-2)" },
 } satisfies ChartConfig;
 
 export default function OverviewPage() {
-  const [data, setData] = useState<DashboardData>(demoDashboard);
+  const [data, setData] = useState<DashboardData>(emptyDashboard);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/dashboard", { signal: controller.signal, cache: "no-store" })
+    const refresh = () => fetch("/api/dashboard", { signal: controller.signal, cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("dashboard unavailable");
         return response.json() as Promise<DashboardData>;
       })
       .then(setData)
-      .catch(() => undefined)
+      .catch(() => { if (!controller.signal.aborted) setError(true); })
       .finally(() => setLoading(false));
-    return () => controller.abort();
+    void refresh();
+    const timer = window.setInterval(refresh, 15_000);
+    return () => { controller.abort(); window.clearInterval(timer); };
   }, []);
+
+  if (error) return <div role="alert" className="py-20 text-center text-muted-foreground">暫時無法讀取總覽，請重新整理頁面。</div>;
 
   const change = percentChange(data.totals.views7d, data.totals.viewsPrevious7d);
   const workerOnline = data.worker.connected;
@@ -50,7 +55,6 @@ export default function OverviewPage() {
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">看本週新增播放、正在加速的帖子，以及需要你注意的信號。</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {data.mode === "demo" ? <Badge className="border-amber-300/20 bg-amber-300/8 text-amber-200" variant="outline">示範資料</Badge> : null}
           <Badge className={workerOnline ? "border-primary/20 bg-primary/8 text-primary" : "border-white/10 bg-white/[0.03] text-muted-foreground"} variant="outline">
             {workerOnline ? <Radio /> : <WifiOff />}
             {workerOnline ? <>本機同步 · <RelativeTime value={data.worker.lastSeenAt} /></> : "等待本機 worker"}
@@ -58,6 +62,7 @@ export default function OverviewPage() {
         </div>
       </div>
 
+      {!loading && data.movers.length === 0 ? <div className="mb-5 rounded-xl border border-white/10 p-5 text-sm text-muted-foreground">尚未追蹤真實帖子。<Link className="ml-2 text-primary hover:underline" href="/bind">匯入 Excel／CSV 或貼上 TikTok 網址</Link></div> : null}
       <section aria-label="關鍵指標" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard detail={`前 7 天 ${compactNumber(data.totals.viewsPrevious7d)}`} label="7 天新增 VV" loading={loading} signal={change == null ? "新窗口" : `${change >= 0 ? "+" : ""}${change.toFixed(1)}%`} value={compactNumber(data.totals.views7d)} />
         <MetricCard detail="目前按帖齡排程" label="活躍追蹤" loading={loading} signal={`${data.totals.activePosts} 條`} value={compactNumber(data.totals.activePosts)} />
@@ -77,7 +82,7 @@ export default function OverviewPage() {
             </div>
           </CardHeader>
           <CardContent className="px-3 pb-2 pt-6 sm:px-6">
-            {loading ? <Skeleton className="h-[280px] w-full" /> : (
+            {loading ? <Skeleton className="h-[280px] w-full" /> : !data.trend.length ? <div className="grid h-[280px] place-items-center text-sm text-muted-foreground">等待採集快照；尚無歷史曲線</div> : (
               <ChartContainer className="h-[280px] w-full aspect-auto" config={chartConfig}>
                 <AreaChart data={data.trend} margin={{ left: 0, right: 12, top: 12, bottom: 4 }}>
                   <defs>
@@ -104,6 +109,7 @@ export default function OverviewPage() {
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y divide-white/8">
+              {!data.movers.length ? <p className="p-6 text-sm text-muted-foreground">目前沒有已採集的帖子。</p> : null}
               {data.movers.slice(0, 5).map((post, index) => (
                 <Link className="group flex items-center gap-4 px-6 py-[18px] transition hover:bg-white/[0.025]" href={`/posts/${post.id}`} key={post.id}>
                   <span className="font-mono text-xs text-muted-foreground">{String(index + 1).padStart(2, "0")}</span>

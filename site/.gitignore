@@ -41,6 +41,7 @@ next-env.d.ts
 # Checkout-local execution profile and tool state; never publish them.
 /.sites-runtime/
 /.sites-git/
+*.tsbuildinfo
 /.agents/
 /.codex/
 /outputs/

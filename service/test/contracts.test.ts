@@ -64,6 +64,26 @@ describe("TikTok provider contract", () => {
     expect(result.metrics).toBeNull();
     expect(result.fallbackReason).toMatch(/upstream unavailable/);
   });
+
+  it("does not turn an empty oEmbed response into a real post", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: -1, msg: "upstream unavailable" }), { status: 503 }))
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    const provider = new TikTokProvider({ fetchImpl, minIntervalMs: 0, retries: 0 });
+    await expect(provider.fetchPost("https://www.tiktok.com/@creator/video/7412345678901234567")).rejects.toThrow(/both failed/);
+  });
+
+  it("lets TikWM resolve a blocked short link and normalizes relative media paths", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 403 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 0, data: {
+        id: "7412345678901234567", author: { unique_id: "creator" }, title: "caption", play_count: 7,
+        digg_count: 1, comment_count: 0, share_count: 0, play: "/video/media/real.mp4", cover: "/video/cover/real.jpg",
+      } }), { status: 200 }));
+    const provider = new TikTokProvider({ fetchImpl, minIntervalMs: 0, retries: 0 });
+    const result = await provider.fetchPost("https://vt.tiktok.com/ZSabc123/");
+    expect(result.metadata).toMatchObject({ url: "https://www.tiktok.com/@creator/video/7412345678901234567", mediaUrl: "https://www.tikwm.com/video/media/real.mp4", coverUrl: "https://www.tikwm.com/video/cover/real.jpg" });
+  });
 });
 
 describe("scheduler and outbound sync", () => {
@@ -112,5 +132,19 @@ describe("scheduler and outbound sync", () => {
     }), { status: 200 }));
     const client = new SiteSyncClient({ baseUrl: "https://site.example", token: "secret", workerId: "test", fetchImpl });
     expect(await client.leaseJobs()).toMatchObject([{ id: "job-1", payload: { sitePostId: "site-post-123" } }]);
+  });
+
+  it("removes acknowledged duplicate events after a lost response and caps batches to Site limits", async () => {
+    const db = openDatabase(":memory:");
+    for (let index = 0; index < 60; index += 1) putSyncEvent(db, "job", `job-${index}`, { id: `job-${index}` }, "2026-10-08T00:00:00.000Z");
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (_url, init) => {
+      const request = JSON.parse(String(init?.body)) as { events: Array<{ id: string }> };
+      expect(request.events).toHaveLength(50);
+      return new Response(JSON.stringify({ accepted: [], ignored: request.events.map((event) => event.id) }), { status: 200 });
+    });
+    const client = new SiteSyncClient({ baseUrl: "https://site.example", token: "secret", workerId: "test", fetchImpl });
+    expect(await flushSyncOutbox(db, client, 100)).toBe(50);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM sync_outbox").get()).toMatchObject({ count: 10 });
+    db.close();
   });
 });

@@ -25,11 +25,14 @@ Never modify a migration that has already been published. Production migrations 
 ## Runtime contract
 
 - D1 binding: `DB`
+- Media bucket binding: `BUCKET`
 - Required secret: `LOCAL_WORKER_TOKEN`
 - Optional write gate: `BIND_PASSPHRASE`
 - Public routes: `/`, `/posts`, `/posts/:id`, `/bind`
 - Worker bridge: `/api/local-worker/*`, protected with bearer authentication
 
-The browser never calls localhost. The Mac worker leases bind jobs and pushes structure-only events over outbound HTTPS. Event IDs are deduplicated and local post IDs are correlated to hosted placeholder IDs.
+The browser never calls localhost. The Mac worker leases bind jobs, pushes data events, and uploads extracted keyframes over outbound HTTPS. Event IDs are deduplicated and local post IDs are correlated to hosted post IDs. Authenticated image uploads use `/api/local-worker/media/:postId/:filename`; public reads use `/media/:postId/:filename`. Detail pages list uploaded frames independently of AI completion and play real provider media with a TikTok player fallback.
 
-The public bind endpoint accepts only TikTok domains and enforces 30 URLs per IP/hour, 300 new posts/day, 1,000 active posts, and 50 URLs/request. CSV/XLSX parsing runs in the browser.
+The public bind endpoint accepts only TikTok domains and enforces 300 URLs per IP/hour, 300 new posts/day, 1,000 active posts, and 50 URLs/request. CSV/XLSX parsing runs in the browser. All XLSX sheets are read; URLs are deduplicated, and batches exceeding 50 are rejected without silently dropping rows. The selected form market/project applies to the imported URLs. Verify the parser with `node --experimental-strip-types scripts/verify-import.mjs`.
+
+No demo fixtures or synthetic fallbacks are served. Empty databases return empty data; unavailable databases return a recoverable error. Original demo detail IDs return 404.

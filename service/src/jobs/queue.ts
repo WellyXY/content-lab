@@ -64,7 +64,8 @@ export function leaseJobs(
       WHERE run_at <= ? AND (
         status IN ('queued','failed') OR (status = 'running' AND locked_until < ?)
       ) AND attempts < max_attempts
-      ORDER BY run_at, created_at LIMIT ?
+      ORDER BY CASE kind WHEN 'remote_bind' THEN 0 WHEN 'ingest' THEN 1 WHEN 'capture' THEN 2 ELSE 3 END,
+        run_at, created_at LIMIT ?
     `).all(now, now, limit) as Array<{ id: string }>).map((row) => row.id);
     if (ids.length === 0) {
       db.exec("COMMIT");
@@ -73,7 +74,9 @@ export function leaseJobs(
     const placeholders = ids.map(() => "?").join(",");
     db.prepare(`UPDATE jobs SET status='running', attempts=attempts+1, locked_until=?, lease_owner=?, updated_at=? WHERE id IN (${placeholders})`)
       .run(lockedUntil, input.workerId, now, ...ids);
-    const rows = db.prepare(`SELECT * FROM jobs WHERE id IN (${placeholders}) ORDER BY run_at, created_at`).all(...ids) as unknown as JobRow[];
+    const rows = db.prepare(`SELECT * FROM jobs WHERE id IN (${placeholders})
+      ORDER BY CASE kind WHEN 'remote_bind' THEN 0 WHEN 'ingest' THEN 1 WHEN 'capture' THEN 2 ELSE 3 END,
+        run_at, created_at`).all(...ids) as unknown as JobRow[];
     for (const row of rows) putSyncEvent(db, "job", row.id, mapJob(row), now);
     db.exec("COMMIT");
     return rows.map(mapJob);

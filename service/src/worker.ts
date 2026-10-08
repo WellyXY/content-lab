@@ -22,6 +22,16 @@ const log = (event: string, detail: Record<string, unknown> = {}): void => {
   console.log(JSON.stringify({ time: new Date().toISOString(), event, ...detail }));
 };
 
+async function pushPendingEvents(): Promise<void> {
+  if (!syncClient) return;
+  try {
+    const count = await flushSyncOutbox(db, syncClient);
+    if (count > 0) log("site_events_pushed", { count });
+  } catch (error) {
+    log("site_push_failed", { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 async function processJob(database: ContentLabDatabase, job: Job): Promise<void> {
   if (job.kind === "ingest") {
     await ingestPost(database, provider, job.payload as { url: string; market?: string | null; projectTag?: string | null; boundBy?: string | null; sitePostId?: string | null });
@@ -63,9 +73,11 @@ export async function runWorkerCycle(): Promise<void> {
     catch (error) { log("site_pull_failed", { error: error instanceof Error ? error.message : String(error) }); }
   }
   log("scheduler_cycle", { ...runSchedulerCycle(db) });
+  await pushPendingEvents();
   for (let processed = 0; processed < 20; processed += 1) {
     const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: 20 * 60_000 })[0];
     if (!job) break;
+    await pushPendingEvents();
     try {
       await processJob(db, job);
       completeJob(db, job.id);
@@ -88,13 +100,12 @@ export async function runWorkerCycle(): Promise<void> {
       }
       log("job_failed", { jobId: job.id, kind: job.kind, status: state.status, error: error instanceof Error ? error.message : String(error) });
     }
+    // Publish real metadata and metrics immediately; later AI jobs can take minutes.
+    await pushPendingEvents();
   }
   const delivery = await deliverAlertOutbox(db, config.feishuWebhookUrl, config.publicBaseUrl);
   if (delivery.delivered > 0 || delivery.failed > 0) log("alert_delivery", delivery);
-  if (syncClient) {
-    try { log("site_events_pushed", { count: await flushSyncOutbox(db, syncClient) }); }
-    catch (error) { log("site_push_failed", { error: error instanceof Error ? error.message : String(error) }); }
-  }
+  await pushPendingEvents();
 }
 
 async function main(): Promise<void> {
@@ -107,7 +118,9 @@ async function main(): Promise<void> {
     const started = Date.now();
     try { await runWorkerCycle(); } catch (error) { log("worker_cycle_failed", { error: error instanceof Error ? error.stack ?? error.message : String(error) }); }
     if (once || stopping) break;
-    const wait = Math.max(1_000, 5 * 60_000 - (Date.now() - started));
+    const due = db.prepare("SELECT 1 FROM jobs WHERE status IN ('queued','failed') AND run_at<=? AND attempts<max_attempts LIMIT 1")
+      .get(new Date().toISOString());
+    const wait = due ? 1_000 : Math.max(1_000, 30_000 - (Date.now() - started));
     await new Promise<void>((resolve) => setTimeout(resolve, wait));
   } while (!stopping);
   db.close();

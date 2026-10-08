@@ -5,6 +5,7 @@ import { CheckCircle2, CircleDashed, FileSpreadsheet, Link2, LoaderCircle, Uploa
 import { toast } from "sonner";
 
 import { RelativeTime } from "@/components/content-lab/relative-time";
+import { cleanUrl, extractTikTokUrls, linksFromSheets } from "@/lib/import-links";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,16 +39,19 @@ export default function BindPage() {
   const [projectTag, setProjectTag] = useState("");
   const [passphrase, setPassphrase] = useState("");
   const [jobs, setJobs] = useState<QueueJob[]>([]);
-  const [queueMode, setQueueMode] = useState<"live" | "demo">("demo");
+  const [queueError, setQueueError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [lastResult, setLastResult] = useState<BindResponse | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refreshQueue = useCallback(() => {
     return fetch("/api/jobs", { cache: "no-store" })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error("queue unavailable")))
-      .then((result: { mode: "live" | "demo"; jobs: QueueJob[] }) => { setJobs(result.jobs); setQueueMode(result.mode); })
-      .catch(() => undefined);
+      .then(async (response): Promise<{ mode: "live"; jobs: QueueJob[] }> => {
+        if (!response.ok) throw new Error("queue unavailable");
+        return await response.json() as { mode: "live"; jobs: QueueJob[] };
+      })
+      .then((result: { mode: "live"; jobs: QueueJob[] }) => { setJobs(result.jobs); setQueueError(false); })
+      .catch(() => setQueueError(true));
   }, []);
 
   useEffect(() => {
@@ -57,7 +61,8 @@ export default function BindPage() {
   }, [refreshQueue]);
 
   const performBind = useCallback(async (urls: string[], overrides?: { market?: string; projectTag?: string; passphrase?: string }) => {
-    const unique = [...new Set(urls.map(cleanUrl).filter(Boolean))].slice(0, 50);
+    const unique = [...new Set(urls.map(cleanUrl).filter(Boolean))];
+    if (unique.length > 50) throw new Error("單次最多 50 條，請分批匯入；尚未送出任何網址");
     if (!unique.length) throw new Error("請先貼上至少一條 TikTok 網址");
     const response = await fetch("/api/posts", {
       method: "POST",
@@ -131,15 +136,15 @@ export default function BindPage() {
       let values: string[] = [];
       if (/\.xlsx$/i.test(file.name)) {
         const { default: readXlsxFile } = await import("read-excel-file/browser");
-        const rows = await readXlsxFile(file);
-        values = rows.flatMap((row) => row.map((cell) => String(cell ?? "")));
+        const sheets = await readXlsxFile(file);
+        values = linksFromSheets(sheets);
       } else {
         values = [(await file.text())];
       }
       const found = extractTikTokUrls(values.join("\n"));
       if (!found.length) throw new Error("檔案裡找不到 TikTok 網址");
       setRawUrls((current) => [current, ...found].filter(Boolean).join("\n"));
-      toast.success(`讀到 ${found.length} 條 TikTok 網址`);
+      toast.success(`讀到 ${found.length} 條 TikTok 網址；確認市場與項目後加入佇列`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "無法讀取檔案");
     } finally {
@@ -175,7 +180,7 @@ export default function BindPage() {
         <Card className="border-white/8 bg-card/80 shadow-none">
           <CardHeader className="border-b border-white/8 pb-5"><div className="flex items-center justify-between gap-3"><div><CardTitle className="text-lg">處理方式</CardTitle><CardDescription className="mt-1">公開頁面與本機算力分離</CardDescription></div><FileSpreadsheet className="size-5 text-primary" /></div></CardHeader>
           <CardContent className="space-y-5 pt-6">
-            {[{ step: "01", title: "站點收件", body: "檢查 TikTok 網域、去重、限速後寫入佇列。" }, { step: "02", title: "Mac 接單", body: "本機 worker 主動租用工作，不開任何入站端口。" }, { step: "03", title: "採集與分析", body: "TikWM 快照、ffmpeg 抽幀、Codex taxonomy v3 打標。" }, { step: "04", title: "結果同步", body: "只把結構化讀模同步回公開 Dashboard。" }].map((item) => <div className="flex gap-4" key={item.step}><span className="font-mono text-xs text-primary">{item.step}</span><div><p className="text-sm font-medium">{item.title}</p><p className="mt-1 text-sm leading-6 text-muted-foreground">{item.body}</p></div></div>)}
+            {[{ step: "01", title: "站點收件", body: "檢查 TikTok 網域、去重、限速後寫入佇列。" }, { step: "02", title: "Mac 接單", body: "本機 worker 主動租用工作，不開任何入站端口。" }, { step: "03", title: "採集與分析", body: "TikWM 快照、ffmpeg 抽幀、Codex taxonomy v3 打標。" }, { step: "04", title: "結果同步", body: "同步真實數據、分析結果與關鍵幀。" }].map((item) => <div className="flex gap-4" key={item.step}><span className="font-mono text-xs text-primary">{item.step}</span><div><p className="text-sm font-medium">{item.title}</p><p className="mt-1 text-sm leading-6 text-muted-foreground">{item.body}</p></div></div>)}
             <div className="rounded-lg border border-white/8 bg-white/[0.025] p-4 text-xs leading-5 text-muted-foreground">外部頁面碰不到 Codex、SQLite 或你的本機網路。Mac 睡眠時工作保留在佇列，醒來後續跑。</div>
           </CardContent>
         </Card>
@@ -184,22 +189,14 @@ export default function BindPage() {
       {lastResult ? <section className="mt-4 grid gap-3 sm:grid-cols-3"><ResultCard icon={CheckCircle2} label="已加入" tone="success" value={lastResult.accepted.length} /><ResultCard icon={CircleDashed} label="已存在" tone="neutral" value={lastResult.duplicates.length} /><ResultCard icon={XCircle} label="不合法" tone="error" value={lastResult.invalid.length} /></section> : null}
 
       <Card className="mt-4 gap-0 overflow-hidden border-white/8 bg-card/80 py-0 shadow-none">
-        <CardHeader className="border-b border-white/8 py-5"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><div className="flex items-center gap-2"><CardTitle className="text-lg">處理佇列</CardTitle>{queueMode === "demo" ? <Badge className="border-amber-300/20 bg-amber-300/8 text-amber-200" variant="outline">示範</Badge> : null}</div><CardDescription className="mt-1">等待 Mac worker 的綁定與分析工作</CardDescription></div><div className="w-full max-w-52"><div className="mb-2 flex justify-between font-mono text-[10px] text-muted-foreground"><span>完成度</span><span>{queueProgress}%</span></div><Progress className="h-1.5 bg-white/[0.06] [&>div]:bg-primary" value={queueProgress} /></div></div></CardHeader>
+        <CardHeader className="border-b border-white/8 py-5"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><div className="flex items-center gap-2"><CardTitle className="text-lg">處理佇列</CardTitle>{queueError ? <span role="alert" className="text-xs text-amber-200">暫時無法讀取</span> : null}</div><CardDescription className="mt-1">等待 Mac worker 的綁定與分析工作</CardDescription></div><div className="w-full max-w-52"><div className="mb-2 flex justify-between font-mono text-[10px] text-muted-foreground"><span>完成度</span><span>{queueProgress}%</span></div><Progress className="h-1.5 bg-white/[0.06] [&>div]:bg-primary" value={queueProgress} /></div></div></CardHeader>
         <CardContent className="p-0">
+          {!jobs.length ? <p className="p-6 text-center text-sm text-muted-foreground">{queueError ? "請稍後重新整理佇列。" : "目前沒有處理工作。"}</p> : null}
           <Table><TableHeader><TableRow className="border-white/8 hover:bg-transparent"><TableHead className="pl-5 text-xs text-muted-foreground">工作</TableHead><TableHead className="text-xs text-muted-foreground">市場</TableHead><TableHead className="text-xs text-muted-foreground">狀態</TableHead><TableHead className="hidden text-xs text-muted-foreground sm:table-cell">嘗試</TableHead><TableHead className="pr-5 text-right text-xs text-muted-foreground">建立時間</TableHead></TableRow></TableHeader><TableBody>{jobs.slice(0, 20).map((job) => <TableRow className="border-white/8" key={job.id}><TableCell className="max-w-[420px] py-4 pl-5"><p className="font-mono text-xs font-semibold uppercase text-foreground">{job.kind}</p><p className="mt-1 truncate text-xs text-muted-foreground">{String(job.payload.url ?? job.payload.postId ?? job.id)}</p></TableCell><TableCell className="font-mono text-xs">{String(job.payload.market ?? "—")}</TableCell><TableCell><JobBadge status={job.status} /></TableCell><TableCell className="hidden font-mono text-xs text-muted-foreground sm:table-cell">{job.attempts}</TableCell><TableCell className="pr-5 text-right text-xs text-muted-foreground"><RelativeTime value={job.createdAt} /></TableCell></TableRow>)}</TableBody></Table>
         </CardContent>
       </Card>
     </>
   );
-}
-
-function extractTikTokUrls(value: string): string[] {
-  const matches = value.match(/https?:\/\/[\w.-]*tiktok\.com\/[^\s"'<>;,]*/gi) ?? [];
-  return [...new Set(matches.map(cleanUrl).filter(Boolean))].slice(0, 50);
-}
-
-function cleanUrl(value: string): string {
-  return value.trim().replace(/[)\]}.,]+$/, "");
 }
 
 function JobBadge({ status }: { status: string }) {

@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-import { createDemoPosts } from "@/lib/content-lab";
 import {
   getD1,
   hashIdentifier,
@@ -58,11 +57,10 @@ export async function GET(request: Request) {
       ${filters.length ? `WHERE ${filters.join(" AND ")}` : ""}
       ORDER BY ${sort} LIMIT ?`;
     const result = await db.prepare(sql).bind(...values, limit).all();
-    if (!result.results.length) return Response.json({ mode: "demo", posts: createDemoPosts() });
     return Response.json({ mode: "live", posts: result.results.map((row) => rowToPost(row as Record<string, unknown>)) }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     console.error("posts read failed", error);
-    return Response.json({ mode: "demo", posts: createDemoPosts() });
+    return jsonError("暫時無法讀取帖子，請稍後重試", 503);
   }
 }
 
@@ -100,16 +98,22 @@ export async function POST(request: Request) {
 
     const urls = [...normalized.keys()];
     const placeholders = urls.map(() => "?").join(",");
+    const videoIds = [...normalized.values()].flatMap((item) => item.videoId ? [item.videoId] : []);
+    const idClause = videoIds.length ? ` OR video_id IN (${videoIds.map(() => "?").join(",")})` : "";
     const [existingResult, rateResult, activeResult, dailyResult] = await db.batch([
-      db.prepare(`SELECT url FROM posts WHERE url IN (${placeholders})`).bind(...urls),
+      db.prepare(`SELECT url, video_id FROM posts WHERE url IN (${placeholders})${idClause}`).bind(...urls, ...videoIds),
       db.prepare("SELECT count FROM ingest_rate_limits WHERE key = ? AND expires_at > ?").bind(ipKey, nowIso),
       db.prepare("SELECT COUNT(*) AS count FROM posts WHERE tracking_state != 'stopped'"),
       db.prepare("SELECT COUNT(*) AS count FROM posts WHERE bound_at >= datetime('now', '-1 day')"),
     ]);
     const existing = new Set(existingResult.results.map((row) => String((row as Record<string, unknown>).url)));
+    const existingIds = new Set(existingResult.results.map((row) => String((row as Record<string, unknown>).video_id)));
+    for (const [itemUrl, item] of normalized) {
+      if (item.videoId && existingIds.has(item.videoId)) existing.add(itemUrl);
+    }
     const fresh = urls.filter((item) => !existing.has(item));
     const currentRate = integer((rateResult.results[0] as Record<string, unknown> | undefined)?.count);
-    if (currentRate + fresh.length > 30) return jsonError("此網路每小時最多綁定 30 條帖子", 429);
+    if (currentRate + fresh.length > 300) return jsonError("此網路每小時最多綁定 300 條帖子", 429);
     if (integer((activeResult.results[0] as Record<string, unknown> | undefined)?.count) + fresh.length > 1_000) return jsonError("活躍追蹤已達 1,000 條上限", 409);
     if (integer((dailyResult.results[0] as Record<string, unknown> | undefined)?.count) + fresh.length > 300) return jsonError("今日新增已達 300 條上限", 429);
 
