@@ -1,0 +1,176 @@
+{
+ "version": "v3",
+ "dimensions": {
+  "format": {
+   "label": "主要內容形式（佔畫面時間最多的那種）",
+   "multi": false,
+   "values": {
+    "talking_head": "真人對鏡頭講話為主",
+    "skit_pov": "真人演繹的劇情、POV 或情景短劇",
+    "chat_screenshot": "以聊天截圖或對話界面為主體",
+    "text_on_image": "圖片或圖集配大段文字（非聊天截圖）",
+    "vlog_lifestyle": "生活記錄、出遊、日常片段",
+    "montage_music": "多鏡頭混剪或卡點，以音樂和畫面為主、少文字",
+    "app_screen": "App 畫面錄屏或截圖為主體",
+    "other": "以上皆不符",
+    "photo_life": "生活照、自拍組成的圖集，文字很少"
+   }
+  },
+  "hook_type": {
+   "label": "開場鉤子（前 3 秒／第 1 張圖的主要手法）",
+   "multi": false,
+   "values": {
+    "contrast": "A vs B、預期 vs 現實、別人 vs 我 的對比",
+    "suspense": "懸念或提問，答案在後面",
+    "result_first": "先給結果或結局，再交代過程",
+    "identity_callout": "點名特定人群（單身的、被已讀不回的…）",
+    "relatable_pain": "直接說出共同的痛點或委屈",
+    "counterintuitive": "反常識或挑釁觀點",
+    "emotional_quote": "一句情緒金句或告白直接開場",
+    "trend_template": "套用熱門梗、模板或熱門音樂的固定開法",
+    "visual_spectacle": "靠畫面本身（美景、顏值、特效、動作）吸睛",
+    "weak": "沒有明確鉤子，直接進入內容"
+   }
+  },
+  "hook_channels": {
+   "label": "鉤子透過哪些通道傳遞",
+   "multi": true,
+   "values": {
+    "on_screen_text": "畫面大字、字幕或聊天氣泡",
+    "spoken": "口播",
+    "visual": "畫面本身（動作、表情、場景）有獨立吸引力，不只是文字的背景",
+    "audio_trend": "熱門音樂或音效"
+   }
+  },
+  "topic": {
+   "label": "主題",
+   "multi": false,
+   "values": {
+    "crush_ambiguity": "暗戀、曖昧、猜對方心意",
+    "trust_jealousy": "信任、吃醋、疑似越界或出軌",
+    "heartbreak": "失戀、被拒、被傷害、放不下",
+    "couple_sweet": "情侶日常、甜蜜互動、情侶互懟",
+    "dating_meetup": "約會或見面（已發生的經歷，或對某次約會的期待）",
+    "social_hangout": "同城找玩伴、交朋友（非戀愛目的）",
+    "singlehood": "單身狀態、想脫單、沒人關心",
+    "emotional_support": "安慰、被照顧、陪伴",
+    "friend_banter": "朋友之間互損、日常鬥嘴",
+    "self_worth": "自愛、成長、關係觀點或道理",
+    "flirting_skill": "搭訕、聊天技巧、交友方法",
+    "other": "以上皆不符"
+   }
+  },
+  "emotional_tone": {
+   "label": "主要情緒基調（觀眾最強烈的那個感受）",
+   "multi": false,
+   "values": {
+    "sweet": "甜、心動",
+    "sad": "傷感、虐心",
+    "funny": "搞笑、自嘲",
+    "relatable": "共鳴吐槽、真實感",
+    "aspirational": "嚮往、治癒、浪漫想像",
+    "sharp": "犀利、諷刺、態度"
+   }
+  },
+  "structure": {
+   "label": "敘事結構",
+   "multi": false,
+   "values": {
+    "single_beat": "單一畫面或單一笑點，無推進",
+    "setup_twist": "鋪墊後反轉",
+    "contrast_pair": "A/B 對照：前後兩段，或同框分屏同時呈現",
+    "story_arc": "有明確轉折的完整故事（起因→發展→結果）",
+    "list_tips": "清單、步驟、事實列舉",
+    "montage_flow": "情緒、場景或聊天輪次的堆疊，沒有明確轉折"
+   }
+  },
+  "share_trigger": {
+   "label": "觀眾會因為什麼轉發或評論（主要的一項）",
+   "multi": false,
+   "values": {
+    "tag_someone": "想 @ 某個人或發給某人",
+    "self_expression": "替自己說出心聲",
+    "debate": "引發站隊或爭論",
+    "entertainment": "單純好笑或好看",
+    "useful": "有實用價值，想收藏",
+    "none": "沒有明顯觸發點"
+   }
+  },
+  "product_timing": {
+   "label": "PopUp 首次可確認出現的時間點（只有 brand_visibility 是 name_text / name_spoken / branded_ui 時才填，否則一律 na）",
+   "multi": false,
+   "values": {
+    "na": "沒有出現",
+    "opening": "前 3 秒或第 1 張圖",
+    "middle": "中段",
+    "ending": "結尾或最後一張圖"
+   }
+  },
+  "cta": {
+   "label": "主要行動呼籲",
+   "multi": false,
+   "values": {
+    "none": "沒有",
+    "comment": "引導評論或回答問題",
+    "share_tag": "引導分享或 @ 朋友",
+    "dm_invite": "邀請私訊或來找我聊天",
+    "soft_suggest": "暗示可以試試 App，但沒有明確指令",
+    "download": "明確要求下載或使用 App",
+    "follow": "引導關注或看下集"
+   }
+  },
+  "person_presence": {
+   "label": "真人出鏡（只算拍攝的真人；繪畫、頭像、梗圖中的人物不算）",
+   "multi": false,
+   "values": {
+    "face": "清楚露臉",
+    "partial": "只露部分身體、背影或遮臉",
+    "none": "沒有真人"
+   }
+  },
+  "format_elements": {
+   "label": "出現的輔助元素",
+   "multi": true,
+   "values": {
+    "chat_overlay": "疊加聊天截圖或訊息",
+    "meme_insert": "插入梗圖或反應圖",
+    "real_photo": "生活照片",
+    "notification": "手機通知浮層",
+    "split_screen": "同框並排或上下分屏",
+    "face_filter": "臉部濾鏡或特效",
+    "none": "沒有輔助元素",
+    "app_badge": "App 圖示或通知角標（如 999+）"
+   }
+  },
+  "brand_visibility": {
+   "label": "PopUp 品牌可見度（最強的一種）",
+   "multi": false,
+   "values": {
+    "none": "影片內外都沒有任何 PopUp 線索",
+    "caption_only": "只在發布文案或 hashtag 出現",
+    "unbranded_ui": "畫面有交友或聊天介面，但無法確認是 PopUp",
+    "name_text": "畫面文字寫出 PopUp，包括縮寫、暱稱或品牌功能名稱",
+    "name_spoken": "字幕顯示口播提到 PopUp",
+    "branded_ui": "可辨識的 PopUp 介面、Logo 或通知"
+   }
+  },
+  "product_role": {
+   "label": "產品在內容中的角色",
+   "multi": false,
+   "values": {
+    "absent": "沒有出現",
+    "background": "順帶出現，拿掉也不影響內容",
+    "enabler": "推動情節的關鍵（因為用了它才認識、才發生…）",
+    "punchline": "產品本身就是笑點或反差的核心"
+   }
+  }
+ },
+ "scores": {
+  "hook_strength": "前 1 秒是否讓人停下來：1 平淡 → 5 強烈好奇或情緒衝擊",
+  "clarity_1s": "不看文案、1 秒內能否看懂在講什麼：1 看不懂 → 5 一眼就懂",
+  "audience_breadth": "能共鳴的人群有多大：1 小眾圈內梗 → 5 幾乎所有年輕人",
+  "shareability": "想發給某人或替自己發聲的衝動：1 沒有 → 5 非常強",
+  "rewatch": "看完想再看一遍或留言討論的程度：1 沒有 → 5 非常強",
+  "product_naturalness": "產品出現得自然嗎：1 生硬廣告感 → 5 完全不出戲；沒有產品時給 3"
+ }
+}
