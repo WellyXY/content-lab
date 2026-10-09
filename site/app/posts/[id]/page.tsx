@@ -16,7 +16,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
-import { compactNumber, tagLabel, tagDimensionLabel, tagConfidenceLabel, type PostDetailData } from "@/lib/content-lab";
+import { MARKETS, compactNumber, tagLabel, tagDimensionLabel, tagConfidenceLabel, type PostDetailData } from "@/lib/content-lab";
+import { formatPublishedTime } from "@/lib/published-time";
 
 
 export default function PostDetailPage() {
@@ -76,6 +77,7 @@ export default function PostDetailPage() {
   if (!data) return <Empty className="min-h-[60vh] border-white/8"><EmptyHeader><EmptyMedia variant="icon"><Film /></EmptyMedia><EmptyTitle>{t("找不到这条帖子", "Post not found")}</EmptyTitle><EmptyDescription>{loadError ?? t("它可能尚未同步，或链接已失效。", "It may not be synced yet, or the link is invalid.")}</EmptyDescription></EmptyHeader><Button asChild variant="outline"><Link href="/posts">{t("返回帖子列表", "Back to posts")}</Link></Button></Empty>;
 
   const post = data.post;
+  const published = formatPublishedTime(post.publishedAt, MARKETS.find((market) => market.code === post.market)?.timezone);
   const frames = data.keyframes ?? data.features?.keyframes ?? [];
   const videoId = post.url.match(/\/(?:video|photo)\/(\d+)/)?.[1];
   const prediction = data.predictions[0];
@@ -92,7 +94,12 @@ export default function PostDetailPage() {
             <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{post.market}</Badge>
             {post.projectTag ? <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{post.projectTag}</Badge> : null}
             <Badge className={post.analysisState === "complete" ? "border-primary/20 bg-primary/8 text-primary" : "border-amber-300/20 bg-amber-300/8 text-amber-200"} variant="outline">{post.analysisState === "complete" ? t("分析完成", "Analyzed") : post.analysisState === "failed" ? t("分析失败，可重试", "Analysis failed; retry") : t("等待分析结果", "Analysis pending")}</Badge>
-            <span className="flex items-center gap-1 text-xs text-muted-foreground"><Clock3 className="size-3.5" /><RelativeTime value={post.lastCapturedAt} /></span>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted-foreground">
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1"><Clock3 aria-hidden="true" className="size-3.5" /><span>{t("发布时间", "Published")}</span>{published
+              ? <time className="font-mono text-foreground/90" dateTime={post.publishedAt ?? undefined}>{published.date} {published.time} <span className="text-muted-foreground">{published.timeZone}</span></time>
+              : <span>{t("未知", "Unknown")}</span>}</span>
+            <span className="flex items-center gap-1.5"><RefreshCw aria-hidden="true" className="size-3.5" />{t("数据更新", "Data updated")}<RelativeTime value={post.lastCapturedAt} /></span>
           </div>
         </div>
         <div className="flex shrink-0 gap-2">

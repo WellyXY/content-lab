@@ -6,13 +6,9 @@
   <string>com.welly.content-lab.worker</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/lockf</string>
-    <string>-s</string>
-    <string>-t</string>
-    <string>0</string>
-    <string>-k</string>
-    <string>/Users/welly/Documents/Codex/Projects/Pop Up agent/content-lab/var/content-lab-worker.lock</string>
-    <string>/Users/welly/Documents/Codex/Projects/Pop Up agent/content-lab/service/scripts/run-worker-launchd.sh</string>
+    <string>/bin/zsh</string>
+    <string>-c</string>
+    <string>export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"; export SITE_SYNC_URL="https://content-lab-welly.biii38839.chatgpt.site"; export SITE_PLAYBOOK_SYNC="1"; export FEISHU_APP_ID="$(/usr/bin/security find-generic-password -w -a welly -s com.welly.content-lab.feishu-app-id 2>/dev/null)"; if [ -n "$FEISHU_APP_ID" ]; then export FEISHU_APP_SECRET="$(/usr/bin/security find-generic-password -w -a "$FEISHU_APP_ID" -s com.welly.content-lab.feishu-app-secret)"; export FEISHU_ALLOWED_SENDER_IDS="$(/usr/bin/security find-generic-password -w -a "$FEISHU_APP_ID" -s com.welly.content-lab.feishu-owner-open-id 2>/dev/null)"; fi; export CONTENT_LAB_WORKER_ID="mac-welly-content-lab"; export SITE_SYNC_TOKEN="$(/usr/bin/security find-generic-password -w -a welly -s com.welly.content-lab.site-sync)"; exec /opt/homebrew/bin/node --import tsx src/worker.ts</string>
   </array>
   <key>WorkingDirectory</key>
   <string>/Users/welly/Documents/Codex/Projects/Pop Up agent/content-lab/service</string>
