@@ -1199,7 +1199,7 @@ export function RecreateButton({ post, recreations, onStarted }: { post: PostSum
   const [error, setError] = useState<string | null>(null);
   const used = recreations.reduce((sum, item) => sum + item.counts, 0);
   const running = recreations.some((item) => ACTIVE.has(item.status));
-  const disabledReason = post.type === "photo" ? t("图集暂不支持", "Carousels not supported")
+  const disabledReason = post.postType === "photo" ? t("图集暂不支持", "Carousels not supported")
     : post.analysisState !== "complete" ? t("分析完成后可用", "Available after analysis")
     : running ? t("重制进行中", "Recreation in progress")
     : used >= CAP ? t("已用完 2 次", "Both recreations used") : null;

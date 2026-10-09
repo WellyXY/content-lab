@@ -25,3 +25,8 @@ export function rowToRecreation(row: Record<string, unknown>): Recreation {
     counts: Number(row.counts ?? 1), createdAt: String(row.created_at), updatedAt: String(row.updated_at),
   };
 }
+
+/** Binds: id, post_id, created_at, updated_at, post_id (for the count), cap. */
+export const insertRecreationSql = `INSERT INTO recreations (id, post_id, status, counts, created_at, updated_at)
+  SELECT ?, ?, 'queued', 1, ?, ?
+  WHERE (SELECT COALESCE(SUM(counts), 0) FROM recreations WHERE post_id = ?) < ?`;

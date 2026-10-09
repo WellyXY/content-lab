@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { recreationKey, rowToRecreation, RECREATIONS_PER_POST } from "../lib/server/recreations.ts";
+import { DatabaseSync } from "node:sqlite";
+import { insertRecreationSql, recreationKey, rowToRecreation, RECREATIONS_PER_POST } from "../lib/server/recreations.ts";
 
 test("recreation media keys accept only the two known files", () => {
   assert.equal(recreationKey("rc_1", "video.mp4"), "recreations/rc_1/video.mp4");
@@ -15,4 +16,14 @@ test("recreation rows map notes and tolerate bad JSON", () => {
   assert.equal(rowToRecreation(row).notes.summary_en, "Good");
   assert.equal(rowToRecreation(row).counts, 0);
   assert.equal(rowToRecreation({ ...row, notes_json: "{" }).notes, null);
+});
+
+test("the cap is enforced inside one statement, even for back-to-back requests", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("CREATE TABLE recreations (id TEXT PRIMARY KEY, post_id TEXT, status TEXT, notes_json TEXT, video_url TEXT, cover_url TEXT, error TEXT, counts INTEGER DEFAULT 1, created_at TEXT, updated_at TEXT)");
+  const insert = db.prepare(insertRecreationSql);
+  const results = ["a", "b", "c"].map((id) => insert.run(id, "p1", "t", "t", "p1", 2).changes);
+  assert.deepEqual(results, [1, 1, 0]);
+  db.prepare("UPDATE recreations SET counts = 0 WHERE id = 'a'").run();
+  assert.equal(insert.run("d", "p1", "t", "t", "p1", 2).changes, 1);
 });
