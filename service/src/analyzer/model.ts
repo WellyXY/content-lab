@@ -13,7 +13,14 @@ const execFileAsync = promisify(execFile);
 export async function execFileWithoutInput(file: string, args: string[], options: ExecFileOptions = {}): Promise<{ stdout: string; stderr: string }> {
   const pending = execFileAsync(file, args, { ...options, encoding: "utf8" });
   pending.child.stdin?.end();
-  const result = await pending;
+  let result: { stdout: string; stderr: string };
+  try {
+    result = await pending;
+  } catch (error) {
+    // Killed by the timeout before the child could handle SIGTERM: report it the same way.
+    if (pending.child.killed) throw Object.assign(new Error("Process was terminated before completion (timeout or output limit)"), error as object);
+    throw error;
+  }
   if (pending.child.killed) {
     throw Object.assign(new Error("Process was terminated before completion (timeout or output limit)"), result);
   }

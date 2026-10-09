@@ -32,6 +32,10 @@ describe("public keyframe delivery", () => {
     await expect(execFileWithoutInput(process.execPath, ["-e", "process.on('SIGTERM', () => process.exit(0)); setInterval(() => {}, 1000);"], { timeout: 150 })).rejects.toThrow(/terminated before completion/);
   });
 
+  it("reports a process killed by the timeout before it handles SIGTERM as terminated, not a generic failure", async () => {
+    await expect(execFileWithoutInput(process.execPath, ["-e", "setInterval(() => {}, 1000);"], { timeout: 1 })).rejects.toThrow(/terminated before completion/);
+  });
+
   it("runs image analysis with a separate prompt and EOF through the CLI boundary", async () => {
     const dir = directory();
     const executable = join(dir, "codex");
