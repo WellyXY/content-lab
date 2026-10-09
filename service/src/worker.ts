@@ -12,6 +12,7 @@ import { createContentLabFeishuBot } from "./feishu/bot.js";
 import { createFeishuWebhookTransport, deliverAlertOutbox, type FeishuAlertTransport } from "./feishu.js";
 import { completeJob, deferJob, enqueueJob, failJob, leaseJobs, type Job } from "./jobs/queue.js";
 import { TikTokProvider } from "./providers/tiktok.js";
+import { failStaleRecreations, runRecreation } from "./recreate/run.js";
 import { runSchedulerCycle } from "./scheduler.js";
 import { flushSyncOutbox, pullRemoteJobs, SiteSyncClient } from "./sync/client.js";
 
@@ -64,6 +65,17 @@ async function pushPendingEvents(): Promise<void> {
 async function processJob(database: ContentLabDatabase, job: Job): Promise<void> {
   if (job.kind === "ingest") {
     await ingestPost(database, provider, job.payload as { url: string; market?: string | null; projectTag?: string | null; boundBy?: string | null; sitePostId?: string | null });
+    return;
+  }
+  if (job.kind === "recreate") {
+    if (!syncClient) throw new Error("Recreate jobs need site sync to upload the result");
+    const client = syncClient;
+    const { recreationId, sitePostId } = job.payload as { recreationId: string; sitePostId: string };
+    await runRecreation(database, config, { recreationId, sitePostId, finalAttempt: job.attempts >= job.maxAttempts }, {
+      refresh: (postId) => refreshPostMetadata(database, provider, postId),
+      upload: (id, filename, path, contentType) => client.uploadRecreationFile(id, filename, path, contentType),
+      ...(feishuBot ? { notify: feishuBot.notifyOwner } : {}),
+    });
     return;
   }
   if (job.kind === "capture") {
@@ -132,6 +144,9 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
 const QUOTA_PAUSE_MS = 30 * 60_000;
 /** Jobs that call the model share the analysis pool and its quota pause. */
 const MODEL_JOB_KINDS = ["analyze", "assess", "playbook"];
+/** Recreations run one at a time in their own slot, with a lease longer than the 30-minute agent timeout plus rendering. */
+const RECREATE_LEASE_MS = 45 * 60_000;
+let recreateRunning = false;
 const ANALYSIS_LEASE_MS = 20 * 60_000;
 const inflightAnalyses = new Set<Promise<void>>();
 let analysisPausedUntil = 0;
@@ -173,6 +188,13 @@ async function handleJob(job: Job): Promise<void> {
 /** Fill the analysis pool; each analysis runs alongside captures instead of blocking them. */
 function startAnalyses(): void {
   if (Date.now() < analysisPausedUntil) return;
+  if (!recreateRunning) {
+    const recreate = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: RECREATE_LEASE_MS, kinds: ["recreate"] })[0];
+    if (recreate) {
+      recreateRunning = true;
+      void handleJob(recreate).finally(() => { recreateRunning = false; });
+    }
+  }
   while (inflightAnalyses.size < config.analyzerConcurrency) {
     const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, kinds: MODEL_JOB_KINDS })[0];
     if (!job) return;
@@ -187,6 +209,8 @@ export async function runWorkerCycle(): Promise<void> {
     catch (error) { log("site_pull_failed", { error: error instanceof Error ? error.message : String(error) }); }
   }
   log("scheduler_cycle", { ...runSchedulerCycle(db) });
+  const staleRecreations = failStaleRecreations(db);
+  if (staleRecreations) log("recreations_failed_stale", { count: staleRecreations });
   const now = new Date().toISOString();
   for (const market of marketsDueForPlaybook(db, now)) {
     enqueueJob(db, { kind: "playbook", payload: { market }, idempotencyKey: `playbook:${market}:${marketWeekStart(market, now)}` });
@@ -194,7 +218,7 @@ export async function runWorkerCycle(): Promise<void> {
   await pushPendingEvents();
   startAnalyses();
   for (let processed = 0; processed < 20; processed += 1) {
-    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, excludeKinds: MODEL_JOB_KINDS })[0];
+    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, excludeKinds: [...MODEL_JOB_KINDS, "recreate"] })[0];
     if (!job) break;
     await handleJob(job);
     // An ingest enqueues its analysis; start it right away.

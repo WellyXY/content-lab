@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import type { ContentLabDatabase } from "../db/database.js";
 import { syncPostReadModel } from "../collector.js";
 import { enqueueJob } from "../jobs/queue.js";
@@ -16,10 +18,17 @@ export type RemoteAnalyzeJob = {
   attempts: number;
 };
 
+export type RemoteRecreateJob = {
+  id: string;
+  kind: "recreate";
+  payload: { recreationId: string; postId: string };
+  attempts: number;
+};
+
 /** A job this worker cannot run; it is reported back as failed instead of blocking the lease batch. */
 export type RemoteRejectedJob = { id: string; kind: "rejected"; reason: string; attempts: number };
 
-export type RemoteJob = RemoteBindJob | RemoteAnalyzeJob | RemoteRejectedJob;
+export type RemoteJob = RemoteBindJob | RemoteAnalyzeJob | RemoteRecreateJob | RemoteRejectedJob;
 
 /** Hosted analysis retries spend local model quota, so they are budgeted here as well. */
 export const REMOTE_ANALYZE_DAILY_LIMIT = 30;
@@ -27,7 +36,7 @@ export const REMOTE_ANALYZE_POST_COOLDOWN_MS = 6 * 3_600_000;
 
 export type SiteSyncEvent = {
   id: string;
-  type: "post" | "snapshot" | "features" | "prediction" | "job" | "alert" | "playbook" | "post_deleted";
+  type: "post" | "snapshot" | "features" | "prediction" | "job" | "alert" | "playbook" | "post_deleted" | "recreation";
   entityKey: string;
   occurredAt: string;
   payload: unknown;
@@ -94,6 +103,12 @@ export class SiteSyncClient {
         if (typeof postId !== "string" || postId.length < 1 || postId.length > 128) return reject("Analyze job has an invalid postId");
         return [{ id: job.id, kind: "analyze", payload: { postId }, attempts }];
       }
+      if (job.kind === "recreate") {
+        const { recreationId, postId } = job.payload;
+        const valid = (value: unknown) => typeof value === "string" && value.length >= 1 && value.length <= 128;
+        if (!valid(recreationId) || !valid(postId)) return reject("Recreate job has an invalid recreationId or postId");
+        return [{ id: job.id, kind: "recreate", payload: { recreationId: recreationId as string, postId: postId as string }, attempts }];
+      }
       return reject(`Unsupported job kind: ${String(job.kind)}`);
     });
   }
@@ -104,6 +119,24 @@ export class SiteSyncClient {
 
   async failJob(id: string, error: string, retryable: boolean): Promise<void> {
     await this.post(`/api/local-worker/jobs/${encodeURIComponent(id)}/fail`, { workerId: this.options.workerId, error: error.slice(0, 2_000), retryable }, `fail:${id}:${createErrorKey(error)}`);
+  }
+
+  /** PUT a rendered recreation file to the Site's media storage; returns its public path. */
+  async uploadRecreationFile(id: string, filename: "video.mp4" | "cover.jpg", path: string, contentType: string): Promise<string> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 120_000);
+    try {
+      const response = await this.fetchImpl(`${this.baseUrl}/api/local-worker/recreations/${encodeURIComponent(id)}/${filename}`, {
+        method: "PUT", signal: controller.signal,
+        headers: { authorization: `Bearer ${this.options.token}`, "content-type": contentType },
+        body: readFileSync(path),
+      });
+      const payload = await response.json().catch(() => null) as { url?: unknown } | null;
+      if (!response.ok || typeof payload?.url !== "string") throw new Error(`Recreation upload returned ${response.status}: ${JSON.stringify(payload).slice(0, 300)}`);
+      return payload.url;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async pushEvents(events: SiteSyncEvent[]): Promise<string[]> {
@@ -151,6 +184,10 @@ export async function pullRemoteJobs(db: ContentLabDatabase, client: SiteSyncCli
       enqueueJob(db, { kind: "remote_bind", payload: job.payload, syncRemoteId: job.id, idempotencyKey: `site-job:${job.id}`, maxAttempts: 3 });
     } else if (job.kind === "analyze") {
       enqueueJob(db, { kind: "remote_analyze", payload: { sitePostId: job.payload.postId }, syncRemoteId: job.id, idempotencyKey: `site-job:${job.id}`, maxAttempts: 3 });
+    } else if (job.kind === "recreate") {
+      // Progress travels on the recreation row, so the Site job is done once the work is queued here.
+      enqueueJob(db, { kind: "recreate", payload: { recreationId: job.payload.recreationId, sitePostId: job.payload.postId }, idempotencyKey: `site-job:${job.id}`, maxAttempts: 2 });
+      await client.completeJob(job.id);
     }
     accepted += 1;
   }

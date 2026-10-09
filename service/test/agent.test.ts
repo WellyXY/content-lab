@@ -167,3 +167,14 @@ describe("group members", () => {
     }
   });
 });
+
+describe("owner notifications", () => {
+  it("sends a direct text to the first allowlisted owner, and nothing without one", async () => {
+    const { ownerMessageRequest } = await import("../src/feishu/bot.js");
+    expect(ownerMessageRequest(["ou_owner", "ou_two"], "重制完成")).toEqual({
+      params: { receive_id_type: "open_id" },
+      data: { receive_id: "ou_owner", msg_type: "text", content: JSON.stringify({ text: "重制完成" }) },
+    });
+    expect(ownerMessageRequest([], "x")).toBeNull();
+  });
+});

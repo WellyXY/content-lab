@@ -132,6 +132,15 @@ const MIGRATIONS = [
   ) STRICT;
   CREATE INDEX agent_turns_thread ON agent_turns(thread_key, created_at);
   `,
+  `
+  CREATE TABLE recreations (
+    id TEXT PRIMARY KEY, post_id TEXT NOT NULL, site_post_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('queued','preparing','designing','rendering','complete','failed')),
+    notes_json TEXT, video_url TEXT, cover_url TEXT, error TEXT, counts INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT
+  ) STRICT;
+  CREATE INDEX recreations_post ON recreations(post_id, created_at);
+  `,
 ] as const;
 
 export function migrate(db: DatabaseSync): void {

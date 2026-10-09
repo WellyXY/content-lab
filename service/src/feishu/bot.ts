@@ -53,6 +53,8 @@ export interface ContentLabFeishuBot {
   disconnect: () => Promise<void>;
   connectionStatus: () => WSConnectionStatus | undefined;
   identity: () => { openId: string; name: string } | null;
+  /** Direct message to the owner; a no-op without one. */
+  notifyOwner: (text: string) => Promise<void>;
   alertTransport: FeishuAlertTransport | null;
 }
 
@@ -61,6 +63,13 @@ const NO_GROUP_ACCESS = "oc_content_lab_group_queries_disabled";
 export const failClosedGroupAllowlist = (chatIds: readonly string[]): string[] => chatIds.length > 0
   ? [...chatIds]
   : [NO_GROUP_ACCESS];
+
+/** A direct text message to the owner (the first DM-allowlisted open ID), or null when none is set. */
+export function ownerMessageRequest(allowedSenderIds: readonly string[], text: string): { params: { receive_id_type: "open_id" }; data: { receive_id: string; msg_type: "text"; content: string } } | null {
+  const owner = allowedSenderIds[0];
+  if (!owner) return null;
+  return { params: { receive_id_type: "open_id" }, data: { receive_id: owner, msg_type: "text", content: JSON.stringify({ text }) } };
+}
 
 export function resolveFeishuAlertTarget(chatId: string | null, openId: string | null): { type: "chat_id" | "open_id"; id: string } | null {
   if (chatId && openId) throw new Error("Set only one of FEISHU_ALERT_CHAT_ID or FEISHU_ALERT_OPEN_ID");
@@ -325,5 +334,11 @@ export function createContentLabFeishuBot(options: ContentLabFeishuBotOptions): 
     connectionStatus: () => channel.getConnectionStatus(),
     identity: () => channel.botIdentity ? { openId: channel.botIdentity.openId, name: channel.botIdentity.name } : null,
     alertTransport,
+    notifyOwner: async (text: string) => {
+      const request = ownerMessageRequest(options.allowedSenderIds, text);
+      if (!request) return;
+      const response = await channel.rawClient.im.v1.message.create(request);
+      assertFeishuSuccess(response, "Feishu owner notification");
+    },
   };
 }
