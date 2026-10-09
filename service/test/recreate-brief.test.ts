@@ -43,3 +43,11 @@ describe("recreate prompt tools", () => {
     expect(RECREATE_SYSTEM_PROMPT).not.toMatch(/\bnpx\b/);
   });
 });
+
+describe("recreate prompt branding", () => {
+  it("never adds PopUp branding the original post did not have", () => {
+    expect(RECREATE_SYSTEM_PROMPT).toMatch(/never add (any )?new PopUp branding/i);
+    expect(RECREATE_SYSTEM_PROMPT).toMatch(/already (appears|in the source)/i);
+    expect(RECREATE_SYSTEM_PROMPT).not.toMatch(/brand sting|end card|app icon/i);
+  });
+});

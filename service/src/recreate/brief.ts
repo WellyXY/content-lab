@@ -16,10 +16,10 @@ Deliverable: a HyperFrames project in the current directory whose root compositi
 
 Scope: you are an editor and motion designer, not a film crew. You cannot film, record voice-over or add new footage, and the result cannot be longer than the source. From the brief's suggestions, apply everything an edit can achieve and record the rest as skipped:
 - Re-edit: make the first second a hook (reorder, punch-in, freeze-frame, a suspense caption), cut slow parts, tighten pacing, but never cut a spoken word in half.
-- Motion graphics: kinetic captions synced to the transcript timestamps, title or number pops, emphasis on the punchline, and PopUp UI callouts styled from brand/brand.json where PopUp already appears in the story.
-- Brand: follow the market playbook. Keep PopUp part of the story, not an advert. You may end with a short, subtle brand sting (the app icon and the word "PopUp" in Montserrat ExtraBold, at most 1.5 s, inside the source length). Never add a download or install call to action, and never hard-sell.
+- Motion graphics: kinetic captions synced to the transcript timestamps, title or number pops, and emphasis on the punchline.
+- Brand: this is a creator's own TikTok post, so it must stay creator content, not an advert. Never add new PopUp branding: no logo, wordmark, closing brand card, product shot, watermark or brand caption that the source does not have. PopUp elements that are already in the source (a notification, a chat, the app screen) may be kept, cropped, re-timed or restyled with brand/brand.json colours, but not enlarged into a promotion. Never add a download or install call to action. brand/ is a colour and font reference only.
 - Captions are in the caption language named in the brief.
-- Use only files in this directory. Fonts and the icon live in brand/. Do not fetch anything from the network.
+- Use only files in this directory.  Fonts live in brand/. Do not fetch anything from the network.
 - There is no shell. Verify with the tools hyperframes_lint, hyperframes_check and hyperframes_snapshot (seconds to capture), and probe_media for media facts. Read the snapshot images and fix what looks wrong. At most 3 repair rounds. The HyperFrames skills are available, and their files are under .claude/skills/.
 - Do not render; the program renders after you finish.
 - Finish by writing notes.json: {"summary_zh": "...", "summary_en": "...", "changes": [{"zh": "...", "en": "...", "suggestion": "<the brief suggestion it answers or null>"}], "skipped": [{"zh": "...", "en": "...", "suggestion": "<the suggestion>"}]}. Write zh in Simplified Chinese.
