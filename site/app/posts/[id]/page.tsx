@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Clock3, Film, Flame, MessageCircle, Play, RefreshCw, Share2, Sparkles, ThumbsUp } from "lucide-react";
@@ -29,6 +29,12 @@ export default function PostDetailPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+
+  useLayoutEffect(() => {
+    // Reset on entry, before async content replaces the skeleton. Polling must
+    // not move the reader, and explicit fragment links keep their own target.
+    if (!window.location.hash) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, [params.id]);
 
   useEffect(() => {
     const controller = new AbortController();
