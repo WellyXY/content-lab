@@ -1,0 +1,29 @@
+{
+  "name": "PopUp",
+  "tagline_examples": ["Level up your connections", "Express yourself", "AI Me — break the ice with a customized chat assistant"],
+  "colors": {
+    "primary": "#5D57ED",
+    "primaryDark": "#4A44D4",
+    "violet": "#A32DFF",
+    "mint": "#4FFFD6",
+    "coral": "#FE6063",
+    "ink": "#282828",
+    "paper": "#F7F7F7",
+    "gradient": "linear-gradient(180deg, #A32DFF 0%, #5D57ED 100%)"
+  },
+  "fonts": { "display": "Montserrat (800–900, title case)", "body": "Montserrat (500–600)", "file": "fonts/Montserrat[wght].ttf" },
+  "logo": {
+    "appIcon": "app-icon-1024.jpg",
+    "description": "An iridescent glass speech bubble on a violet-to-indigo gradient. No official wordmark file was found; set the word \"PopUp\" in Montserrat ExtraBold next to the icon."
+  },
+  "ui": {
+    "style": "Dark app screens (#111–#282828) with rounded cards, pill-shaped interest tags in saturated colors, primary buttons in #5D57ED with full rounding.",
+    "references": ["reference/app-store-1.jpg", "reference/app-store-2.jpg", "reference/app-store-3.jpg"]
+  },
+  "sources": {
+    "colors_and_font": "https://www.popup.global/ (site stylesheet)",
+    "app_icon_and_screens": "App Store listing 1670299459 \"PopUp - Chat, Friend, Match\", FANTASTIC SG PTE LTD",
+    "font_file": "Google Fonts (SIL Open Font License, see fonts/OFL.txt)",
+    "status": "Collected from public sources on 2026-10-09; replace with official brand files when available."
+  }
+}
