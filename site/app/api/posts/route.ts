@@ -23,6 +23,7 @@ const bindSchema = z.object({
 }).strict();
 
 const sortColumns: Record<string, string> = {
+  publishedAt: "julianday(p.published_at) DESC, p.id ASC",
   delta24h: "p.delta_24h DESC",
   views: "p.views DESC",
   newest: "p.bound_at DESC",
@@ -36,7 +37,7 @@ export async function GET(request: Request) {
     const market = url.searchParams.get("market")?.trim().toUpperCase();
     const state = url.searchParams.get("state")?.trim();
     const query = url.searchParams.get("q")?.trim();
-    const sort = sortColumns[url.searchParams.get("sort") ?? "delta24h"] ?? sortColumns.delta24h;
+    const sort = sortColumns[url.searchParams.get("sort") ?? "publishedAt"] ?? sortColumns.publishedAt;
     const limit = Math.min(200, Math.max(1, integer(url.searchParams.get("limit"), 100)));
 
     const filters: string[] = [];

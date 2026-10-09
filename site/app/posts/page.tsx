@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MARKETS, compactNumber, tagLabel, type PostSummary } from "@/lib/content-lab";
-import { formatPublishedTime } from "@/lib/published-time";
+import { comparePublishedNewest, formatPublishedTime } from "@/lib/published-time";
 
 const POTENTIAL_RANK = { high: 0, medium: 1, low: 2 } as const;
 const POTENTIAL_BADGE = {
@@ -31,22 +31,22 @@ export default function PostsPage() {
   const [query, setQuery] = useState("");
   const [market, setMarket] = useState("all");
   const [state, setState] = useState("all");
-  const [sort, setSort] = useState("delta24h");
+  const [sort, setSort] = useState("publishedAt");
 
   useEffect(() => {
     const controller = new AbortController();
-    const refresh = () => fetch("/api/posts", { cache: "no-store", signal: controller.signal })
+    const refresh = () => fetch(`/api/posts?sort=${encodeURIComponent(sort)}`, { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("posts unavailable");
         return response.json() as Promise<{ mode: "live"; posts: PostSummary[] }>;
       })
-      .then((result) => { setPosts(result.posts); setError(false); })
+      .then((result) => { if (!controller.signal.aborted) { setPosts(result.posts); setError(false); } })
       .catch(() => { if (!controller.signal.aborted) setError(true); })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     void refresh();
     const timer = window.setInterval(refresh, 15_000);
     return () => { controller.abort(); window.clearInterval(timer); };
-  }, []);
+  }, [sort]);
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -57,6 +57,7 @@ export default function PostsPage() {
       return [post.creatorHandle, post.caption, post.projectTag].some((value) => value?.toLowerCase().includes(normalized));
     });
     return result.sort((a, b) => {
+      if (sort === "publishedAt") return comparePublishedNewest(a, b);
       if (sort === "views") return b.views - a.views;
       if (sort === "newest") return new Date(b.boundAt).getTime() - new Date(a.boundAt).getTime();
       if (sort === "potential") return (a.potential ? POTENTIAL_RANK[a.potential] : 3) - (b.potential ? POTENTIAL_RANK[b.potential] : 3) || b.views - a.views;
@@ -78,7 +79,7 @@ export default function PostsPage() {
       </div>
 
       <Card className="gap-0 overflow-hidden border-white/8 bg-card/80 py-0 shadow-none">
-        <div className="grid gap-3 border-b border-white/8 p-4 md:grid-cols-[minmax(220px,1fr)_150px_150px_170px]">
+        <div className="grid gap-3 border-b border-white/8 p-4 md:grid-cols-[minmax(220px,1fr)_150px_150px_220px]">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input aria-label={t("搜索创作者、文案或项目", "Search creators, captions or projects")} className="h-10 border-white/10 bg-white/[0.025] pl-9" onChange={(event) => setQuery(event.target.value)} placeholder={t("搜索创作者、文案、项目", "Search creators, captions, projects")} value={query} />
@@ -92,8 +93,8 @@ export default function PostsPage() {
             <SelectContent><SelectItem value="all">{t("全部状态", "All states")}</SelectItem><SelectItem value="active">{t("每小时", "Hourly")}</SelectItem><SelectItem value="slow">{t("每 3 小时", "Every 3h")}</SelectItem><SelectItem value="daily">{t("每日", "Daily")}</SelectItem><SelectItem value="stopped">{t("已停止", "Stopped")}</SelectItem></SelectContent>
           </Select>
           <Select onValueChange={setSort} value={sort}>
-            <SelectTrigger className="h-10 w-full border-white/10 bg-white/[0.025]"><ListFilter /><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="delta24h">{t("24h 增量", "24h growth")}</SelectItem><SelectItem value="views">{t("累计播放", "Total views")}</SelectItem><SelectItem value="potential">{t("爆款可能性", "Viral potential")}</SelectItem><SelectItem value="newest">{t("最新绑定", "Newest")}</SelectItem></SelectContent>
+            <SelectTrigger aria-label={t("排序", "Sort posts")} className="h-10 w-full border-white/10 bg-white/[0.025]"><ListFilter /><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="publishedAt">{t("发布时间（由新到旧）", "Published (newest first)")}</SelectItem><SelectItem value="delta24h">{t("24h 增量", "24h growth")}</SelectItem><SelectItem value="views">{t("累计播放", "Total views")}</SelectItem><SelectItem value="potential">{t("爆款可能性", "Viral potential")}</SelectItem><SelectItem value="newest">{t("最新绑定", "Recently bound")}</SelectItem></SelectContent>
           </Select>
         </div>
 
