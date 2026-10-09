@@ -29,7 +29,8 @@ export interface ContentLabFeishuBotOptions {
 }
 
 export interface FeishuAgent {
-  answer: (input: { threadKey: string; author: string; text: string }) => Promise<string>;
+  /** `owner` is a sender on the DM allowlist; anyone else in an allowed group is a `member`. */
+  answer: (input: { threadKey: string; author: string; role: "owner" | "member"; text: string }) => Promise<string>;
   reset: (threadKey: string) => void;
 }
 
@@ -74,6 +75,7 @@ export interface ContentLabInboundMessage {
   senderId: string;
   content: string;
   rawContentType: string;
+  chatId?: string;
   threadId?: string;
 }
 
@@ -85,6 +87,8 @@ export const feishuReplyUuid = (appId: string, messageId: string): string => cre
 export async function handleContentLabFeishuMessage(input: {
   appId: string;
   allowedSenderIds: readonly string[];
+  /** Group chats where anyone who mentions the bot gets an answer. */
+  allowedChatIds?: readonly string[];
   db: ContentLabDatabase;
   message: ContentLabInboundMessage;
   reply: (text: string, uuid: string, replyInThread: boolean) => Promise<void>;
@@ -97,7 +101,9 @@ export async function handleContentLabFeishuMessage(input: {
 }): Promise<"answered" | "rejected"> {
   const { message } = input;
   const log = input.log ?? (() => undefined);
-  if (!input.allowedSenderIds.includes(message.senderId)) {
+  const isOwner = input.allowedSenderIds.includes(message.senderId);
+  const allowedGroup = message.chatType === "group" && Boolean(message.chatId) && (input.allowedChatIds ?? []).includes(message.chatId!);
+  if (!isOwner && !allowedGroup) {
     log("feishu_message_rejected", { reason: "sender_not_allowed" });
     return "rejected";
   }
@@ -125,7 +131,7 @@ export async function handleContentLabFeishuMessage(input: {
     }) ?? null;
     let answer: string;
     try {
-      answer = await input.agent.answer({ threadKey, author: message.senderId, text: question });
+      answer = await input.agent.answer({ threadKey, author: message.senderId, role: isOwner ? "owner" : "member", text: question });
       log("feishu_agent_answered", { chatType: message.chatType, chars: answer.length });
     } catch (error) {
       log("feishu_agent_failed", { error: error instanceof Error ? error.message : String(error) });
@@ -218,6 +224,7 @@ export function createContentLabFeishuBot(options: ContentLabFeishuBotOptions): 
       await handleContentLabFeishuMessage({
         appId: options.appId,
         allowedSenderIds: options.allowedSenderIds,
+        allowedChatIds: options.allowedChatIds,
         db: options.db,
         message,
         log,
@@ -257,7 +264,8 @@ export function createContentLabFeishuBot(options: ContentLabFeishuBotOptions): 
         },
       });
     });
-    instance.on("reject", (event) => log("feishu_message_rejected", { reason: event.reason }));
+    // The chat id of a refused group is logged locally so the owner can choose to allow it.
+    instance.on("reject", (event) => log("feishu_message_rejected", { reason: event.reason, ...(event.reason === "group_not_allowed" ? { chatId: event.chatId } : {}) }));
     instance.on("error", (error) => log("feishu_bot_error", { code: error.code, error: error.message }));
     instance.on("reconnecting", () => log("feishu_bot_reconnecting"));
     instance.on("reconnected", () => log("feishu_bot_reconnected"));

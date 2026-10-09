@@ -120,3 +120,50 @@ describe("binding posts from the agent", () => {
     }
   });
 });
+
+describe("group members", () => {
+  it("answers anyone in an allowed group as a member, the owner as owner, and refuses other groups", async () => {
+    const db = openDatabase(":memory:");
+    const roles: string[] = [];
+    const base = {
+      appId: "cli_test", allowedSenderIds: ["ou_owner"], allowedChatIds: ["oc_team"], db,
+      reply: async () => undefined, replyCard: async () => undefined,
+      agent: { answer: async ({ role }: { role: string }) => { roles.push(role); return "ok"; }, reset: () => undefined },
+    };
+    const group = { ...message, chatType: "group" as const, chatId: "oc_team" };
+    expect(await handleContentLabFeishuMessage({ ...base, message: { ...group, senderId: "ou_colleague" } })).toBe("answered");
+    expect(await handleContentLabFeishuMessage({ ...base, message: { ...group, messageId: "om_2" } })).toBe("answered");
+    expect(await handleContentLabFeishuMessage({ ...base, message: { ...group, messageId: "om_3", senderId: "ou_colleague", chatId: "oc_other" } })).toBe("rejected");
+    expect(await handleContentLabFeishuMessage({ ...base, message: { ...message, messageId: "om_4", senderId: "ou_colleague" } })).toBe("rejected");
+    expect(roles).toEqual(["member", "owner"]);
+    db.close();
+  });
+
+  it("gives members no memory or job tools and keeps private tables out of run_sql", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "content-lab-member-"));
+    const dbPath = join(dir, "test.sqlite");
+    const db = openDatabase(dbPath);
+    try {
+      addMemory(db, { scope: "global", kind: "fact", content: "只给老板看的备注", source: "test" });
+      const limits = { dailyNewPosts: 10, maxActivePosts: 10 };
+      const owner = createAgentTools({ db, dbPath, channel: "feishu", author: "ou_owner", threadKey: "t", bindLimits: limits });
+      const member = createAgentTools({ db, dbPath, channel: "feishu", author: "ou_colleague", threadKey: "t", role: "member", bindLimits: limits });
+      const names = member.tools.map((item) => item.name);
+      expect(names).toEqual(expect.arrayContaining(["overview", "get_post", "bind_posts", "read_feishu_doc", "run_sql"]));
+      for (const name of ["remember", "forget", "list_memories", "queue_reanalysis", "queue_playbook"]) expect(names).not.toContain(name);
+      expect(owner.tools.map((item) => item.name)).toContain("remember");
+      const sql = member.tools.find((item) => item.name === "run_sql")!;
+      expect((await sql.handler({ sql: "SELECT COUNT(*) AS n FROM posts" }, {})).isError).toBeFalsy();
+      const leak = await sql.handler({ sql: "SELECT content FROM memories" }, {});
+      expect(leak.isError).toBe(true);
+      expect((await sql.handler({ sql: "WITH m AS (SELECT * FROM \"memories\") SELECT * FROM m" }, {})).isError).toBe(true);
+      const ownerSql = owner.tools.find((item) => item.name === "run_sql")!;
+      expect((await ownerSql.handler({ sql: "SELECT content FROM memories" }, {})).isError).toBeFalsy();
+      owner.close();
+      member.close();
+    } finally {
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

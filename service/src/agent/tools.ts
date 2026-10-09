@@ -26,6 +26,8 @@ export interface AgentToolContext {
   channel: string;
   author: string | null;
   threadKey: string;
+  /** Members (anyone in an allowed group who is not the owner) get read, document and bind tools only. Defaults to owner. */
+  role?: "owner" | "member";
   /** The same daily and active-post quotas the website's bind form uses. */
   bindLimits: BindLimits;
   /** Reads a Feishu doc, sheet, base or wiki page as the bot app; absent when Feishu is not configured. */
@@ -76,9 +78,19 @@ function agentJobsToday(db: ContentLabDatabase): number {
   return (db.prepare("SELECT COUNT(*) AS count FROM jobs WHERE idempotency_key LIKE 'agent:%' AND created_at >= ?").get(since) as { count: number }).count;
 }
 
+/** Tools that change the owner's memory or spend model quota. */
+export const OWNER_ONLY_TOOLS = new Set(["list_memories", "remember", "forget", "queue_reanalysis", "queue_reassessment", "queue_playbook"]);
+/** Tables members cannot read through run_sql: memory, chat logs, job payloads (website IPs) and operations state. */
+const PRIVATE_TABLES = new Set(["memories", "agent_turns", "agent_sessions", "jobs", "rate_limits", "sync_outbox", "alerts", "scheduler_state", "change_requests"]);
+
 export function createAgentTools(context: AgentToolContext) {
   const { db } = context;
+  const member = context.role === "member";
   const readOnly = new DatabaseSync(context.dbPath, { readOnly: true });
+  // Node 24.10+ authorizer (SQLITE_READ=20, SQLITE_OK=0, SQLITE_DENY=1); without it members get no run_sql at all.
+  const authorize = (readOnly as unknown as { setAuthorizer?: (callback: (action: number, table: string | null) => number) => void }).setAuthorizer;
+  const memberSql = member && typeof authorize === "function";
+  if (memberSql) authorize.call(readOnly, (action, table) => action === 20 && table !== null && PRIVATE_TABLES.has(table) ? 1 : 0);
   const used = (name: string): void => context.onTool?.(name);
   const queue = (kind: string, payload: Record<string, unknown>, key: string): Text => {
     if (agentJobsToday(db) >= AGENT_DAILY_JOB_LIMIT) return fail(`今日由 Agent 发起的任务已达 ${AGENT_DAILY_JOB_LIMIT} 个上限。`);
@@ -86,7 +98,7 @@ export function createAgentTools(context: AgentToolContext) {
     return ok({ queued: true, jobId: job.id, kind, note: "任务已排队，worker 会在几分钟内处理；完成后可以再查询结果。" });
   };
 
-  const tools = [
+  const allTools = [
     tool("overview", "Totals for every market or one: tracked posts, views gained in the last 7 days vs the 7 days before, viral-potential counts and the latest playbook version.", { market: MARKET.optional() }, async ({ market }) => {
       used("overview");
       const now = Date.now();
@@ -238,6 +250,7 @@ tags_json: {dimension: {value, confidence}}; use json_extract.`, { sql: z.string
       return queue("playbook", { market }, `playbook:${market}`);
     }),
   ];
+  const tools = member ? allTools.filter((item) => !OWNER_ONLY_TOOLS.has(item.name) && (item.name !== "run_sql" || memberSql)) : allTools;
 
   const server = createSdkMcpServer({ name: AGENT_SERVER, version: "1.0.0", tools });
   return { server, tools, toolNames: tools.map((item) => `mcp__${AGENT_SERVER}__${item.name}`), close: () => readOnly.close() };

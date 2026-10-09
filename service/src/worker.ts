@@ -40,7 +40,7 @@ const feishuBot = config.feishuAppId && config.feishuAppSecret ? createContentLa
   lockPath: config.feishuBotLockPath,
   db,
   agent: {
-    answer: async ({ threadKey, author, text }) => (await runAgentTurn(db, config, { threadKey, channel: "feishu", author, text })).reply,
+    answer: async ({ threadKey, author, role, text }) => (await runAgentTurn(db, config, { threadKey, channel: "feishu", author, role, text })).reply,
     reset: (threadKey) => resetAgentThread(db, threadKey),
   },
   log,

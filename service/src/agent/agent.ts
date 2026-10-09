@@ -31,6 +31,10 @@ Replies:
 - Answer in Simplified Chinese unless the owner writes in English. Be concise: lead with the answer, then the evidence, then a concrete next step when useful. Use short Markdown lists and bold sparingly; no tables wider than four columns.
 - You cannot change ads, budgets, creators' accounts or the website's code; say so if asked.`;
 
+const MEMBER_NOTE = `
+
+This message comes from a team member in a group chat, not the owner. You can answer data questions, read Feishu documents and bind posts for them. You cannot save or show memories or queue re-analyses, re-assessments or playbooks; if they ask, say only the owner can do that. Do not reveal what other people said in other conversations.`;
+
 export interface AgentTurn {
   reply: string;
   sessionId: string | null;
@@ -58,12 +62,12 @@ export function resetAgentThread(db: ContentLabDatabase, threadKey: string): voi
   db.prepare("DELETE FROM agent_sessions WHERE thread_key=?").run(threadKey);
 }
 
-export async function runAgentTurn(db: ContentLabDatabase, config: ServiceConfig, input: { threadKey: string; channel: string; author: string | null; text: string }): Promise<AgentTurn> {
+export async function runAgentTurn(db: ContentLabDatabase, config: ServiceConfig, input: { threadKey: string; channel: string; author: string | null; role?: "owner" | "member"; text: string }): Promise<AgentTurn> {
   return withSlot(async () => {
     const started = Date.now();
     const previous = db.prepare("SELECT session_id FROM agent_sessions WHERE thread_key=?").get(input.threadKey) as { session_id: string } | undefined;
     let toolCalls = 0;
-    const tools = createAgentTools({ db, dbPath: config.dbPath, channel: input.channel, author: input.author, threadKey: input.threadKey, bindLimits: config, ...(feishuDocReader(config) ? { readFeishuDoc: feishuDocReader(config)! } : {}), onTool: () => { toolCalls += 1; } });
+    const tools = createAgentTools({ db, dbPath: config.dbPath, channel: input.channel, author: input.author, threadKey: input.threadKey, role: input.role ?? "owner", bindLimits: config, ...(feishuDocReader(config) ? { readFeishuDoc: feishuDocReader(config)! } : {}), onTool: () => { toolCalls += 1; } });
     // An empty working directory keeps any project CLAUDE.md or files out of reach.
     const cwd = join(config.mediaDir, "..", "agent-cwd");
     mkdirSync(cwd, { recursive: true });
@@ -77,7 +81,7 @@ export async function runAgentTurn(db: ContentLabDatabase, config: ServiceConfig
         for await (const message of query({
           prompt: input.text,
           options: {
-            model: config.claudeModel, systemPrompt: AGENT_SYSTEM_PROMPT, cwd,
+            model: config.claudeModel, systemPrompt: input.role === "member" ? AGENT_SYSTEM_PROMPT + MEMBER_NOTE : AGENT_SYSTEM_PROMPT, cwd,
             tools: [], mcpServers: { content: tools.server }, allowedTools: tools.toolNames, permissionMode: "dontAsk",
             settingSources: [], maxTurns: 24, abortController: controller,
             pathToClaudeCodeExecutable: "claude",
