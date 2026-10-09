@@ -144,8 +144,11 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
 const QUOTA_PAUSE_MS = 30 * 60_000;
 /** Jobs that call the model share the analysis pool and its quota pause. */
 const MODEL_JOB_KINDS = ["analyze", "assess", "playbook"];
-/** Recreations run one at a time in their own slot, with a lease longer than the 30-minute agent timeout plus rendering. */
-const RECREATE_LEASE_MS = 45 * 60_000;
+/**
+ * Recreations run one at a time in their own slot. The lease covers the worst case of every stage
+ * (init 2 + transcription 10 + agent 30 + render 20 + re-encode 10 + uploads 4 minutes) with room to spare.
+ */
+const RECREATE_LEASE_MS = 2 * 60 * 60_000;
 let recreateRunning = false;
 const ANALYSIS_LEASE_MS = 20 * 60_000;
 const inflightAnalyses = new Set<Promise<void>>();

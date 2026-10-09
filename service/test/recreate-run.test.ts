@@ -8,6 +8,7 @@ import { upsertPost } from "../src/collector.js";
 import { failStaleRecreations, runRecreation } from "../src/recreate/run.js";
 import { enqueueJob, leaseJobs } from "../src/jobs/queue.js";
 import { SourceUnavailableError } from "../src/recreate/workspace.js";
+import { AnalyzerQuotaError } from "../src/analyzer/claude.js";
 import { pullRemoteJobs, SiteSyncClient } from "../src/sync/client.js";
 
 const post = (db: ReturnType<typeof openDatabase>) => upsertPost(db, { source: "tikwm", metrics: null, metadata: { videoId: "7400000000000000009", url: "https://www.tiktok.com/@a/video/7400000000000000009", authorId: "u", authorHandle: "a", caption: "", type: "video", durationS: 10, musicTitle: null, coverUrl: null, mediaUrl: null, imageUrls: [], publishedAt: null } }, { market: "VN", projectTag: null, boundBy: null, sitePostId: "site-9" });
@@ -62,6 +63,7 @@ describe("recreate jobs from the Site", () => {
       if (url.endsWith("/jobs/lease")) return new Response(JSON.stringify({ jobs: [
         { id: "j1", kind: "recreate", payload: { recreationId: "rc9", postId: "site-9" }, attempts: 1 },
         { id: "j2", kind: "recreate", payload: { recreationId: "", postId: "site-9" }, attempts: 1 },
+        { id: "j3", kind: "recreate", payload: { recreationId: "../../..", postId: "site-9" }, attempts: 1 },
       ] }), { status: 200 });
       if (url.includes("/recreations/")) return new Response(JSON.stringify({ url: "/media/recreations/rc9/video.mp4" }), { status: 200 });
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
@@ -73,6 +75,7 @@ describe("recreate jobs from the Site", () => {
     expect(JSON.parse(job.payload_json)).toEqual({ recreationId: "rc9", sitePostId: "site-9" });
     expect(calls.some((call) => call.url.endsWith("/jobs/j1/complete"))).toBe(true);
     expect(calls.some((call) => call.url.endsWith("/jobs/j2/fail"))).toBe(true);
+    expect(calls.some((call) => call.url.endsWith("/jobs/j3/fail"))).toBe(true);
     const file = join(mkdtempSync(join(tmpdir(), "up-")), "video.mp4"); writeFileSync(file, "x");
     expect(await client.uploadRecreationFile("rc9", "video.mp4", file, "video/mp4")).toBe("/media/recreations/rc9/video.mp4");
     expect(calls.at(-1)).toMatchObject({ url: "https://site.test/api/local-worker/recreations/rc9/video.mp4", method: "PUT", type: "video/mp4" });
@@ -92,6 +95,33 @@ describe("stale recreations", () => {
     expect(failStaleRecreations(db, new Date(Date.now() + 5_000))).toBe(1);
     expect(events(db).at(-1)).toMatchObject({ status: "failed", counts: 1 });
     expect((db.prepare("SELECT status FROM jobs WHERE idempotency_key='r4'").get() as { status: string }).status).toBe("dead");
+    db.close();
+  });
+});
+
+describe("recreation errors", () => {
+  it("keeps a quota pause queued even on the final attempt, so the job can still finish", async () => {
+    const db = openDatabase(":memory:"); post(db);
+    await expect(runRecreation(db, { mediaDir: "/x", claudeModel: "m" } as never, { recreationId: "rc7", sitePostId: "site-9", finalAttempt: true }, {
+      refresh: async () => undefined, upload: async () => "", workspace: async () => ({ dir: "/tmp/ws", sourceDurationS: 10 }), agent: async () => { throw new AnalyzerQuotaError("usage limit reached"); },
+    })).rejects.toBeInstanceOf(AnalyzerQuotaError);
+    expect(events(db).at(-1)).toMatchObject({ status: "queued", counts: 1 });
+    db.close();
+  });
+
+  it("syncs a short error category, never local paths or tool output", async () => {
+    const db = openDatabase(":memory:"); post(db);
+    const notes: string[] = [];
+    await expect(runRecreation(db, { mediaDir: "/x", claudeModel: "m" } as never, { recreationId: "rc8", sitePostId: "site-9", finalAttempt: true }, {
+      refresh: async () => undefined, upload: async () => "", notify: async (text) => { notes.push(text); },
+      workspace: async () => ({ dir: "/tmp/ws", sourceDurationS: 10 }),
+      agent: async () => ({ notes: { summary_zh: "好", summary_en: "Good", changes: [] }, turns: 1 }),
+      render: async () => { throw new Error("Command failed: /Users/someone/project/node_modules/.bin/hyperframes render --output /Users/someone/var/x.mp4"); },
+    })).rejects.toThrow();
+    const last = events(db).at(-1) as { status: string; error: string };
+    expect(last.status).toBe("failed");
+    expect(last.error).toBe("render_failed");
+    expect(notes[0]).toContain("Command failed");
     db.close();
   });
 });

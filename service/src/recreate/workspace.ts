@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 
 import { prepareMedia, type PreparedMedia } from "../analyzer/media.js";
 import { latestPlaybook, renderPlaybookMarkdown } from "../analyzer/playbook.js";
+import { childEnvironment } from "../analyzer/claude.js";
 import { MARKET_LANGUAGES, transcribePost } from "../analyzer/transcribe.js";
 import { memoriesFor, ownerMemoryBlock } from "../agent/memory.js";
 import type { ServiceConfig } from "../config.js";
@@ -16,7 +17,10 @@ import { buildRecreateBrief, type RecreateInputs } from "./brief.js";
 const execFileAsync = promisify(execFile);
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 /** HyperFrames skills the session may load; copied so only project settings are read. */
-const SKILLS = ["hyperframes", "hyperframes-core", "hyperframes-animation", "hyperframes-cli", "hyperframes-creative", "hyperframes-keyframes", "motion-graphics"];
+export const RECREATE_SKILLS = ["hyperframes", "hyperframes-core", "hyperframes-animation", "hyperframes-cli", "hyperframes-creative", "hyperframes-keyframes", "motion-graphics"];
+
+/** Recreation ids come from the Site; they name a folder that is deleted and rebuilt, so only plain tokens pass. */
+export const RECREATION_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
 /** The source video cannot be obtained; the attempt does not count against the post's limit. */
 export class SourceUnavailableError extends Error {}
@@ -31,12 +35,18 @@ export async function prepareRecreateWorkspace(
   input: { recreationId: string; postId: string },
   deps: { refresh: (postId: string) => Promise<void>; init?: (dir: string) => Promise<void> },
 ): Promise<RecreateWorkspace> {
-  const dir = join(config.mediaDir, "..", "recreate", input.recreationId);
+  if (!RECREATION_ID.test(input.recreationId)) throw new Error(`Invalid recreation id: ${JSON.stringify(input.recreationId).slice(0, 120)}`);
+  const recreateRoot = resolve(config.mediaDir, "..", "recreate");
+  const dir = resolve(recreateRoot, input.recreationId);
+  // Never delete anything but a direct child of the recreate folder.
+  if (dirname(dir) !== recreateRoot) throw new Error("Invalid recreation id: resolves outside the recreate folder");
   // A retried job always starts from a clean workspace.
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   // HyperFrames only scaffolds into an empty directory.
   await (deps.init ?? initHyperframes)(dir);
+  // The scaffold's own agent instructions (publish, upgrade, render) conflict with the recreate prompt.
+  for (const file of ["CLAUDE.md", "AGENTS.md"]) rmSync(join(dir, file), { force: true });
   mkdirSync(join(dir, "assets", "frames"), { recursive: true });
   const loadPost = () => db.prepare("SELECT id, type, media_url, image_urls_json, duration_s, market, caption FROM posts WHERE id=?").get(input.postId) as WorkspacePost | undefined;
   let post = loadPost();
@@ -47,7 +57,12 @@ export async function prepareRecreateWorkspace(
     prepared = await prepareMedia(config.mediaDir, post);
   } catch {
     // Signed media URLs expire: refresh once, then download again.
-    await deps.refresh(input.postId);
+    try {
+      await deps.refresh(input.postId);
+    } catch (error) {
+      // A deleted or private post cannot be refreshed: that is an unavailable source, not a failed recreation.
+      throw new SourceUnavailableError(`Source video unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    }
     post = loadPost() ?? post;
     rmSync(join(config.mediaDir, post.id, "source.mp4"), { force: true });
     try {
@@ -60,7 +75,7 @@ export async function prepareRecreateWorkspace(
   cpSync(join(postDir, "source.mp4"), join(dir, "assets", "source.mp4"));
   for (const frame of prepared.frames) cpSync(join(postDir, frame.file), join(dir, "assets", "frames", frame.file));
   cpSync(join(REPO_ROOT, "brand", "popup"), join(dir, "brand"), { recursive: true });
-  for (const skill of SKILLS) {
+  for (const skill of RECREATE_SKILLS) {
     const source = join(homedir(), ".claude", "skills", skill);
     if (existsSync(source)) cpSync(source, join(dir, ".claude", "skills", skill), { recursive: true });
   }
@@ -74,7 +89,7 @@ export const HYPERFRAMES_BIN = join(SERVICE_MODULES, ".bin", "hyperframes");
 export const HYPERFRAMES_ENV = { HYPERFRAMES_TELEMETRY: "0", HYPERFRAMES_SKIP_SKILLS: "1", DO_NOT_TRACK: "1" };
 
 async function initHyperframes(dir: string): Promise<void> {
-  await execFileAsync(HYPERFRAMES_BIN, ["init", ".", "--non-interactive", "--resolution", "portrait", "--skip-transcribe"], { cwd: dir, timeout: 120_000, env: { ...process.env, ...HYPERFRAMES_ENV } });
+  await execFileAsync(HYPERFRAMES_BIN, ["init", ".", "--non-interactive", "--resolution", "portrait", "--skip-transcribe"], { cwd: dir, timeout: 120_000, env: { ...childEnvironment(), ...HYPERFRAMES_ENV } });
   // `npx hyperframes …` inside the workspace resolves to the pinned local package instead of the registry.
   symlinkSync(SERVICE_MODULES, join(dir, "node_modules"), "dir");
 }

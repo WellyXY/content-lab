@@ -56,6 +56,19 @@ const STAGES: Record<Recreation["status"], [string, string]> = {
   failed: ["失败", "Failed"],
 };
 
+/** Worker error categories (never raw output, which can contain local paths). */
+const ERRORS: Record<string, [string, string]> = {
+  source_unavailable: ["原片无法下载（可能已删除或设为私密）。", "The source video could not be downloaded (it may be deleted or private)."],
+  prepare_failed: ["准备素材失败。", "Preparing the material failed."],
+  agent_failed: ["Agent 没能完成设计。", "The Agent could not finish the design."],
+  render_failed: ["渲染失败。", "Rendering failed."],
+  verify_failed: ["成片没有通过检查（尺寸、声音或时长）。", "The result failed its checks (size, audio or length)."],
+  upload_failed: ["成片上传失败。", "Uploading the result failed."],
+  post_not_tracked: ["本机没有追踪这条帖子。", "The local worker does not track this post."],
+  worker_stopped: ["本机 worker 在制作中停止了。", "The local worker stopped during the recreation."],
+  unknown: ["重制失败。", "The recreation failed."],
+};
+
 /** Every recreation of the post: progress, the rendered video and the Agent's notes. */
 export function RecreatePanel({ recreations }: { recreations: Recreation[] }) {
   const { t, lang } = useLocale();
@@ -92,8 +105,8 @@ export function RecreatePanel({ recreations }: { recreations: Recreation[] }) {
                 ) : null}
               </div>
             ) : null}
-            {item.status === "failed" && item.counts === 0 ? <p className="text-sm text-red-300/80">{t("原片无法下载，这次不计次数。", "The source video could not be downloaded; this attempt is not counted.")}</p>
-              : item.status === "failed" && item.error ? <p className="break-words text-sm text-red-300/80">{item.error}</p> : null}
+            {item.status === "failed" ? <p className="text-sm text-red-300/80">{t(...(ERRORS[item.error ?? ""] ?? ERRORS.unknown!))}{item.counts === 0 ? t("这次不计次数。", " This attempt is not counted.") : ""}</p>
+              : item.error === "paused_for_quota" ? <p className="text-sm text-amber-200/80">{t("Claude 额度暂时用完，恢复后会自动继续。", "Claude quota is used up for now; it resumes automatically.")}</p> : null}
           </div>
         ))}
       </CardContent>

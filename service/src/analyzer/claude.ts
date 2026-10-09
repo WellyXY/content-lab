@@ -76,7 +76,8 @@ export function parseClaudeOutput(stdout: string, stderr = ""): unknown {
 }
 
 /** Only what the CLI needs to find its own sign-in; worker secrets stay out of the child. */
-function childEnvironment(): NodeJS.ProcessEnv {
+/** The few variables a child CLI needs; secrets in the worker environment stay out. */
+export function childEnvironment(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { NO_COLOR: "1" };
   for (const key of ["HOME", "USER", "LOGNAME", "PATH", "SHELL", "TMPDIR", "LANG", "CLAUDE_CONFIG_DIR"]) {
     if (process.env[key]) env[key] = process.env[key];

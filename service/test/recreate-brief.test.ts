@@ -35,3 +35,11 @@ describe("recreate prompt scope", () => {
     expect(RECREATE_SYSTEM_PROMPT).not.toMatch(/\bCTA\b/);
   });
 });
+
+describe("recreate prompt tools", () => {
+  it("points the agent at the check tools, not a shell", () => {
+    expect(RECREATE_SYSTEM_PROMPT).toContain("hyperframes_check");
+    expect(RECREATE_SYSTEM_PROMPT).toContain("hyperframes_snapshot");
+    expect(RECREATE_SYSTEM_PROMPT).not.toMatch(/\bnpx\b/);
+  });
+});

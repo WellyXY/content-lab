@@ -1,5 +1,6 @@
 import type { ServiceConfig } from "../config.js";
 import type { ContentLabDatabase } from "../db/database.js";
+import { AnalyzerQuotaError } from "../analyzer/claude.js";
 import { putSyncEvent } from "../sync/outbox.js";
 import { runRecreateAgent, type RecreateNotes } from "./agent.js";
 import { renderRecreation, type Rendition } from "./render.js";
@@ -40,23 +41,28 @@ export function failStaleRecreations(db: ContentLabDatabase, now = new Date()): 
     const payload = JSON.parse(job.payload_json) as { recreationId: string; sitePostId: string };
     db.prepare("UPDATE jobs SET status='dead', last_error='worker stopped during the final attempt', locked_until=NULL, lease_owner=NULL, updated_at=? WHERE id=?").run(now.toISOString(), job.id);
     const existing = db.prepare("SELECT post_id FROM recreations WHERE id=?").get(payload.recreationId) as { post_id: string } | undefined;
-    saveRecreation(db, { id: payload.recreationId, postId: existing?.post_id ?? payload.sitePostId, sitePostId: payload.sitePostId }, "failed", { error: "The worker stopped while this recreation was running" });
+    saveRecreation(db, { id: payload.recreationId, postId: existing?.post_id ?? payload.sitePostId, sitePostId: payload.sitePostId }, "failed", { error: "worker_stopped" });
   }
   return stale.length;
 }
 
+/** Error categories shown on the public page; full messages stay local and go to the owner on Feishu. */
+type ErrorCategory = "source_unavailable" | "prepare_failed" | "agent_failed" | "render_failed" | "verify_failed" | "upload_failed" | "paused_for_quota" | "post_not_tracked" | "worker_stopped";
+
 export async function runRecreation(db: ContentLabDatabase, config: ServiceConfig, input: { recreationId: string; sitePostId: string; finalAttempt?: boolean }, deps: RecreateDeps): Promise<void> {
   const post = db.prepare("SELECT id FROM posts WHERE site_post_id=? OR id=? LIMIT 1").get(input.sitePostId, input.sitePostId) as { id: string } | undefined;
   const save = (status: Status, fields: SaveFields = {}) => saveRecreation(db, { id: input.recreationId, postId: post?.id ?? input.sitePostId, sitePostId: input.sitePostId }, status, fields);
-  if (!post) { save("failed", { error: "Post is not tracked by this worker", counts: 0 }); return; }
+  if (!post) { save("failed", { error: "post_not_tracked", counts: 0 }); return; }
   let stage: Status = "preparing";
+  let category: ErrorCategory = "prepare_failed";
   try {
     save("preparing");
     const workspace = await (deps.workspace ?? ((d, c, i) => prepareRecreateWorkspace(d, c, i, { refresh: deps.refresh })))(db, config, { recreationId: input.recreationId, postId: post.id });
-    stage = "designing"; save(stage);
+    stage = "designing"; category = "agent_failed"; save(stage);
     const { notes } = await (deps.agent ?? runRecreateAgent)(workspace.dir, config.claudeModel);
-    stage = "rendering"; save(stage, { notes });
+    stage = "rendering"; category = "render_failed"; save(stage, { notes });
     const rendition = await (deps.render ?? renderRecreation)(workspace.dir, workspace.sourceDurationS);
+    category = "upload_failed";
     const videoUrl = await deps.upload(input.recreationId, "video.mp4", rendition.videoPath, "video/mp4");
     const coverUrl = await deps.upload(input.recreationId, "cover.jpg", rendition.coverPath, "image/jpeg");
     save("complete", { videoUrl, coverUrl });
@@ -64,15 +70,21 @@ export async function runRecreation(db: ContentLabDatabase, config: ServiceConfi
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (error instanceof SourceUnavailableError) {
-      save("failed", { error: message, counts: 0 });
-      await deps.notify?.(`重制失败（原片不可用，不计次数）· post ${input.sitePostId}`).catch(() => undefined);
+      save("failed", { error: "source_unavailable", counts: 0 });
+      await deps.notify?.(`重制失败（原片不可用，不计次数）· post ${input.sitePostId}：${message.slice(0, 300)}`).catch(() => undefined);
       return;
     }
+    if (error instanceof AnalyzerQuotaError) {
+      // The worker defers quota pauses without spending an attempt, so the recreation is still pending.
+      save("queued", { error: "paused_for_quota" });
+      throw error;
+    }
+    if (category === "render_failed" && /^Rendition /.test(message)) category = "verify_failed";
     if (input.finalAttempt) {
-      save("failed", { error: message.slice(0, 1_000) });
-      await deps.notify?.(`重制失败 · post ${input.sitePostId}：${message.slice(0, 200)}`).catch(() => undefined);
+      save("failed", { error: category });
+      await deps.notify?.(`重制失败 · post ${input.sitePostId}（${category}）：${message.slice(0, 500)}`).catch(() => undefined);
     } else {
-      save(stage, { error: message.slice(0, 1_000) });
+      save(stage, { error: category });
     }
     throw error;
   }

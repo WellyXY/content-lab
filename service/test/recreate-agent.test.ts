@@ -13,10 +13,17 @@ describe("recreate agent runner", () => {
     const dir = mkdtempSync(join(tmpdir(), "agent-"));
     writeFileSync(join(dir, "notes.json"), JSON.stringify({ summary_zh: "加了钩子", summary_en: "Added a hook", changes: [{ zh: "第一秒通知", en: "Notification at 0s", suggestion: null }] }));
     let seen: Record<string, unknown> = {};
+    process.env.SITE_SYNC_TOKEN = "secret-token-value";
     const result = await runRecreateAgent(dir, "claude-opus-5-5", { query: fakeQuery([{ type: "result", subtype: "success", result: "done", num_turns: 12 }], (o) => { seen = o; }) });
+    delete process.env.SITE_SYNC_TOKEN;
     expect(result.notes.summary_en).toBe("Added a hook");
     expect(seen).toMatchObject({ cwd: dir, model: "claude-opus-5-5", settingSources: ["project"] });
     expect(typeof seen.canUseTool).toBe("function");
+    expect(seen.tools).not.toContain("Bash");
+    expect(Object.keys(seen.mcpServers as object)).toEqual(["recreate"]);
+    expect(seen.allowedTools).toEqual(expect.arrayContaining(["mcp__recreate__hyperframes_check", "mcp__recreate__probe_media"]));
+    expect((seen.env as Record<string, string>).SITE_SYNC_TOKEN).toBeUndefined();
+    expect((seen.env as Record<string, string>).HOME).toBeDefined();
     rmSync(dir, { recursive: true, force: true });
   });
 

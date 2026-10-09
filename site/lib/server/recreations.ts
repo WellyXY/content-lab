@@ -26,7 +26,16 @@ export function rowToRecreation(row: Record<string, unknown>): Recreation {
   };
 }
 
-/** Binds: id, post_id, created_at, updated_at, post_id (for the count), cap. */
+/** Queued or running recreations across the whole site; the Mac runs one at a time, so a script cannot fill hours of queue. */
+export const ACTIVE_RECREATIONS_LIMIT = 5;
+
+/** Binds: id, post_id, created_at, updated_at, post_id (for the per-post count), per-post cap, site-wide active cap. */
 export const insertRecreationSql = `INSERT INTO recreations (id, post_id, status, counts, created_at, updated_at)
   SELECT ?, ?, 'queued', 1, ?, ?
-  WHERE (SELECT COALESCE(SUM(counts), 0) FROM recreations WHERE post_id = ?) < ?`;
+  WHERE (SELECT COALESCE(SUM(counts), 0) FROM recreations WHERE post_id = ?) < ?
+    AND (SELECT COUNT(*) FROM recreations WHERE status IN ('queued', 'preparing', 'designing', 'rendering')) < ?`;
+
+/** Browsers mark requests from other sites; scripts without the header are held back by the active limit. */
+export function isCrossSiteRequest(request: Request): boolean {
+  return request.headers.get("sec-fetch-site") === "cross-site";
+}

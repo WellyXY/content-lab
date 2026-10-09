@@ -1,9 +1,10 @@
 import { getD1, jsonError } from "@/lib/server/content-db";
-import { insertRecreationSql, RECREATIONS_PER_POST } from "@/lib/server/recreations";
+import { ACTIVE_RECREATIONS_LIMIT, insertRecreationSql, isCrossSiteRequest, RECREATIONS_PER_POST } from "@/lib/server/recreations";
 
 type Context = { params: Promise<{ id: string }> };
 
-export async function POST(_request: Request, context: Context) {
+export async function POST(request: Request, context: Context) {
+  if (isCrossSiteRequest(request)) return jsonError("请从 Content Lab 页面发起 · Start it from the Content Lab page", 403);
   const { id } = await context.params;
   if (!id || id.length > 100) return jsonError("帖子 ID 不正确 · Invalid post ID", 400);
   try {
@@ -16,13 +17,16 @@ export async function POST(_request: Request, context: Context) {
     const now = new Date().toISOString();
     // One transaction: the job exists only if the capped insert succeeded.
     const [inserted] = await db.batch([
-      db.prepare(insertRecreationSql).bind(recreationId, id, now, now, id, RECREATIONS_PER_POST),
+      db.prepare(insertRecreationSql).bind(recreationId, id, now, now, id, RECREATIONS_PER_POST, ACTIVE_RECREATIONS_LIMIT),
       db.prepare(`INSERT INTO jobs (id, kind, payload_json, status, run_at, attempts, created_at, updated_at)
         SELECT ?, 'recreate', ?, 'queued', ?, 0, ?, ? WHERE EXISTS (SELECT 1 FROM recreations WHERE id = ?)`)
         .bind(crypto.randomUUID(), JSON.stringify({ recreationId, postId: id }), now, now, now, recreationId),
     ]);
-    if (!inserted?.meta.changes) return jsonError(`每条帖子最多重制 ${RECREATIONS_PER_POST} 次 · At most ${RECREATIONS_PER_POST} recreations per post`, 409);
     const used = await db.prepare("SELECT COALESCE(SUM(counts), 0) AS used FROM recreations WHERE post_id = ?").bind(id).first<{ used: number }>();
+    if (!inserted?.meta.changes) {
+      if (Number(used?.used ?? 0) >= RECREATIONS_PER_POST) return jsonError(`每条帖子最多重制 ${RECREATIONS_PER_POST} 次 · At most ${RECREATIONS_PER_POST} recreations per post`, 409);
+      return jsonError("排队的重制太多，请稍后再试 · Too many recreations in the queue; try again later", 429);
+    }
     return Response.json({ recreationId, status: "queued", remaining: Math.max(0, RECREATIONS_PER_POST - Number(used?.used ?? 0)) }, { status: 202 });
   } catch (error) {
     console.error("recreate request failed", error);

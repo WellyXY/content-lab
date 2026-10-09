@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { insertRecreationSql, recreationKey, rowToRecreation, RECREATIONS_PER_POST } from "../lib/server/recreations.ts";
+import { ACTIVE_RECREATIONS_LIMIT, insertRecreationSql, isCrossSiteRequest, recreationKey, rowToRecreation, RECREATIONS_PER_POST } from "../lib/server/recreations.ts";
 
 test("recreation media keys accept only the two known files", () => {
   assert.equal(recreationKey("rc_1", "video.mp4"), "recreations/rc_1/video.mp4");
@@ -22,8 +22,25 @@ test("the cap is enforced inside one statement, even for back-to-back requests",
   const db = new DatabaseSync(":memory:");
   db.exec("CREATE TABLE recreations (id TEXT PRIMARY KEY, post_id TEXT, status TEXT, notes_json TEXT, video_url TEXT, cover_url TEXT, error TEXT, counts INTEGER DEFAULT 1, created_at TEXT, updated_at TEXT)");
   const insert = db.prepare(insertRecreationSql);
-  const results = ["a", "b", "c"].map((id) => insert.run(id, "p1", "t", "t", "p1", 2).changes);
+  const results = ["a", "b", "c"].map((id) => insert.run(id, "p1", "t", "t", "p1", 2, 5).changes);
   assert.deepEqual(results, [1, 1, 0]);
   db.prepare("UPDATE recreations SET counts = 0 WHERE id = 'a'").run();
-  assert.equal(insert.run("d", "p1", "t", "t", "p1", 2).changes, 1);
+  assert.equal(insert.run("d", "p1", "t", "t", "p1", 2, 5).changes, 1);
+});
+
+test("a site-wide limit on queued and running recreations stops a script from sweeping every post", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("CREATE TABLE recreations (id TEXT PRIMARY KEY, post_id TEXT, status TEXT, notes_json TEXT, video_url TEXT, cover_url TEXT, error TEXT, counts INTEGER DEFAULT 1, created_at TEXT, updated_at TEXT)");
+  const insert = db.prepare(insertRecreationSql);
+  const posts = ["p1", "p2", "p3", "p4", "p5", "p6"];
+  assert.deepEqual(posts.map((post) => insert.run(`r-${post}`, post, "t", "t", post, 2, ACTIVE_RECREATIONS_LIMIT).changes), [1, 1, 1, 1, 1, 0]);
+  db.prepare("UPDATE recreations SET status = 'complete' WHERE id = 'r-p1'").run();
+  assert.equal(insert.run("r-p6", "p6", "t", "t", "p6", 2, ACTIVE_RECREATIONS_LIMIT).changes, 1);
+});
+
+test("cross-site requests are refused, same-origin and header-less ones pass", () => {
+  const request = (site) => new Request("https://x.test/api", { method: "POST", headers: site ? { "sec-fetch-site": site } : {} });
+  assert.equal(isCrossSiteRequest(request("cross-site")), true);
+  assert.equal(isCrossSiteRequest(request("same-origin")), false);
+  assert.equal(isCrossSiteRequest(request(null)), false);
 });

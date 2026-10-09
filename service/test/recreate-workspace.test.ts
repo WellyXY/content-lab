@@ -41,3 +41,33 @@ describe("recreate workspace", () => {
     db.close();
   });
 });
+
+describe("recreate workspace safety", () => {
+  it("refuses recreation ids that are not a plain token", async () => {
+    const { db, post, config } = setup(null);
+    for (const recreationId of ["../../..", "a/b", "", "x".repeat(101)]) {
+      await expect(prepareRecreateWorkspace(db, config, { recreationId, postId: post.id }, { refresh: async () => undefined, init: async () => undefined }), recreationId).rejects.toThrow(/recreation id/i);
+    }
+    db.close();
+  });
+
+  it("treats a failing metadata refresh (deleted or private post) as an unavailable source", async () => {
+    const { db, post, config } = setup(null);
+    await expect(prepareRecreateWorkspace(db, config, { recreationId: "r5", postId: post.id }, { refresh: async () => { throw new Error("tikwm: video not found"); }, init: async () => undefined }))
+      .rejects.toBeInstanceOf(SourceUnavailableError);
+    db.close();
+  });
+
+  it("removes the scaffold's agent instructions so only the recreate prompt applies", async () => {
+    const { db, post, config } = setup(null);
+    const postDir = join((config as { mediaDir: string }).mediaDir, post.id); mkdirSync(postDir, { recursive: true });
+    execFileSync("ffmpeg", ["-loglevel", "error", "-f", "lavfi", "-i", "color=c=blue:s=360x640:d=2", "-f", "lavfi", "-i", "sine=d=2", "-shortest", "-pix_fmt", "yuv420p", join(postDir, "source.mp4")]);
+    const workspace = await prepareRecreateWorkspace(db, config, { recreationId: "r6", postId: post.id }, {
+      refresh: async () => undefined,
+      init: async (dir) => { writeFileSync(join(dir, "CLAUDE.md"), "use npx hyperframes publish"); writeFileSync(join(dir, "AGENTS.md"), "x"); },
+    });
+    expect(existsSync(join(workspace.dir, "CLAUDE.md"))).toBe(false);
+    expect(existsSync(join(workspace.dir, "AGENTS.md"))).toBe(false);
+    db.close();
+  });
+});

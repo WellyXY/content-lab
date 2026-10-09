@@ -3,7 +3,8 @@ import { mkdirSync, renameSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { HYPERFRAMES_BIN, HYPERFRAMES_ENV } from "./workspace.js";
+import { recreateEnvironment } from "./tools.js";
+import { HYPERFRAMES_BIN } from "./workspace.js";
 
 const execFileAsync = promisify(execFile);
 export const MAX_RECREATION_BYTES = 50 * 1024 * 1024;
@@ -22,7 +23,7 @@ export async function verifyRendition(path: string, sourceDurationS: number): Pr
 }
 
 async function hyperframesRender(dir: string, out: string): Promise<void> {
-  await execFileAsync(HYPERFRAMES_BIN, ["render", "--quality", "delivery", "--output", out], { cwd: dir, timeout: 20 * 60_000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, ...HYPERFRAMES_ENV } });
+  await execFileAsync(HYPERFRAMES_BIN, ["render", "--quality", "delivery", "--output", out], { cwd: dir, timeout: 20 * 60_000, maxBuffer: 32 * 1024 * 1024, env: recreateEnvironment() });
 }
 
 export async function renderRecreation(dir: string, sourceDurationS: number, deps: { render?: (dir: string, out: string) => Promise<void> } = {}): Promise<Rendition> {

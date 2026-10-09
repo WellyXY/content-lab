@@ -105,8 +105,9 @@ export class SiteSyncClient {
       }
       if (job.kind === "recreate") {
         const { recreationId, postId } = job.payload;
-        const valid = (value: unknown) => typeof value === "string" && value.length >= 1 && value.length <= 128;
-        if (!valid(recreationId) || !valid(postId)) return reject("Recreate job has an invalid recreationId or postId");
+        // The recreation id names a folder the worker deletes and rebuilds: plain tokens only.
+        const token = (value: unknown) => typeof value === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(value);
+        if (!token(recreationId) || !token(postId)) return reject("Recreate job has an invalid recreationId or postId");
         return [{ id: job.id, kind: "recreate", payload: { recreationId: recreationId as string, postId: postId as string }, attempts }];
       }
       return reject(`Unsupported job kind: ${String(job.kind)}`);
