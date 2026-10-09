@@ -104,6 +104,9 @@ const MIGRATIONS = [
     UNIQUE(market, version)
   ) STRICT;
   `,
+  `
+  ALTER TABLE posts ADD COLUMN checkpoints_json TEXT;
+  `,
 ] as const;
 
 export function migrate(db: DatabaseSync): void {

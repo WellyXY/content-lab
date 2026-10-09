@@ -27,6 +27,7 @@ export const posts = sqliteTable(
     delta24h: integer("delta_24h").notNull().default(0),
     source: text("source"),
     lastCapturedAt: text("last_captured_at"),
+    checkpointsJson: text("checkpoints_json").notNull().default("[]"),
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [

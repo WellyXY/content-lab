@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { ContentLabDatabase } from "./db/database.js";
 import { evaluateAlerts } from "./domain/alerts.js";
+import { deriveCheckpoints, type CheckpointSnapshot } from "./domain/checkpoints.js";
 import { MARKET_UTC_OFFSET_HOURS } from "./domain/features.js";
 import { deriveHourlyRows, hourBucket, type MetricPoint } from "./domain/hourly.js";
 import { nextCaptureAt } from "./domain/schedule.js";
@@ -23,12 +24,22 @@ export const postReadModel = (db: ContentLabDatabase, id: string): Record<string
       p.cover_url AS coverUrl, p.media_url AS mediaUrl, p.published_at AS publishedAt, p.bound_at AS boundAt,
       p.bound_by AS boundBy,
       p.tracking_state AS trackingState, p.next_capture_at AS nextCaptureAt,
-      p.features_state AS featuresState, c.handle AS creator
+      p.features_state AS featuresState, p.checkpoints_json AS checkpointsJson, c.handle AS creator
     FROM posts p LEFT JOIN creators c ON c.id=p.creator_id WHERE p.id=?
   `).get(id) as Record<string, unknown> | undefined;
   if (!row) throw new Error(`Unknown post ${id}`);
-  return row;
+  const { checkpointsJson, ...model } = row;
+  return { ...model, checkpoints: typeof checkpointsJson === "string" ? JSON.parse(checkpointsJson) as unknown : [] };
 };
+
+/** Recompute the early-performance checkpoints from every successful snapshot of the post. */
+export function refreshCheckpoints(db: ContentLabDatabase, postId: string, now = new Date().toISOString()): void {
+  const post = db.prepare("SELECT published_at FROM posts WHERE id=?").get(postId) as { published_at: string | null } | undefined;
+  if (!post) return;
+  const snapshots = db.prepare(`SELECT captured_at AS capturedAt, views, likes, comments, shares, saves FROM metric_snapshots
+    WHERE post_id=? AND ok=1 AND views IS NOT NULL ORDER BY captured_at`).all(postId) as unknown as CheckpointSnapshot[];
+  db.prepare("UPDATE posts SET checkpoints_json=? WHERE id=?").run(JSON.stringify(deriveCheckpoints(post.published_at, snapshots, Date.parse(now))), postId);
+}
 
 export function syncPostReadModel(db: ContentLabDatabase, id: string, now = new Date().toISOString()): void {
   const model = postReadModel(db, id);
@@ -190,6 +201,7 @@ export function recordSnapshot(
       }, now);
     }
   }
+  refreshCheckpoints(db, post.id, now);
   scheduleNextCapture(db, post, metrics, now);
 }
 
@@ -237,6 +249,7 @@ function recordUnavailable(
       payload: { postId: post.id, videoId: post.video_id, failures, error },
     }, now);
   }
+  refreshCheckpoints(db, post.id, now);
   syncPostReadModel(db, post.id, now);
 }
 

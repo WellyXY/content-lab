@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MARKETS, compactNumber, tagLabel, type PostSummary } from "@/lib/content-lab";
+import { formatPublishedTime } from "@/lib/published-time";
 
 const POTENTIAL_RANK = { high: 0, medium: 1, low: 2 } as const;
 const POTENTIAL_BADGE = {
@@ -99,7 +100,7 @@ export default function PostsPage() {
         <CardContent className="p-0">
           {loading ? <div className="space-y-2 p-5">{Array.from({ length: 6 }, (_, index) => <Skeleton className="h-16 w-full" key={index} />)}</div> : filtered.length ? (
             <Table>
-              <TableHeader><TableRow className="border-white/8 hover:bg-transparent"><TableHead className="pl-5 text-xs text-muted-foreground">{t("内容", "Post")}</TableHead><TableHead className="text-xs text-muted-foreground">{t("市场 / 项目", "Market / project")}</TableHead><TableHead className="text-right text-xs text-muted-foreground">{t("累计 VV", "Views")}</TableHead><TableHead className="text-right text-xs text-muted-foreground">{t("24h 增量", "24h growth")}</TableHead><TableHead className="hidden text-xs text-muted-foreground lg:table-cell">{t("Agent 标签", "Agent tags")}</TableHead><TableHead className="hidden pr-5 text-right text-xs text-muted-foreground sm:table-cell">{t("状态", "Status")}</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow className="border-white/8 hover:bg-transparent"><TableHead className="pl-5 text-xs text-muted-foreground">{t("内容", "Post")}</TableHead><TableHead className="text-xs text-muted-foreground">{t("市场 / 项目", "Market / project")}</TableHead><TableHead className="text-xs text-muted-foreground">{t("发布时间", "Published")}</TableHead><TableHead className="text-right text-xs text-muted-foreground">{t("累计 VV", "Views")}</TableHead><TableHead className="text-right text-xs text-muted-foreground">{t("24h 增量", "24h growth")}</TableHead><TableHead className="hidden text-xs text-muted-foreground lg:table-cell">{t("Agent 标签", "Agent tags")}</TableHead><TableHead className="hidden pr-5 text-right text-xs text-muted-foreground sm:table-cell">{t("状态", "Status")}</TableHead></TableRow></TableHeader>
               <TableBody>{filtered.map((post) => <PostRow key={post.id} post={post} />)}</TableBody>
             </Table>
           ) : (
@@ -115,6 +116,7 @@ function PostRow({ post }: { post: PostSummary }) {
   const { t, lang } = useLocale();
   const status = statusCopy(post);
   const potential = post.potential ? POTENTIAL_BADGE[post.potential] : null;
+  const published = formatPublishedTime(post.publishedAt, MARKETS.find((market) => market.code === post.market)?.timezone);
   return (
     <TableRow className="border-white/8 hover:bg-white/[0.025]">
       <TableCell className="max-w-[320px] py-3 pl-5">
@@ -129,6 +131,12 @@ function PostRow({ post }: { post: PostSummary }) {
         </div>
       </TableCell>
       <TableCell><p className="font-mono text-xs font-semibold">{post.market}</p><p className="mt-1 max-w-32 truncate text-xs text-muted-foreground">{post.projectTag ?? t("未分类", "Unassigned")}</p></TableCell>
+      <TableCell className="whitespace-nowrap">
+        {published ? <time dateTime={post.publishedAt ?? undefined} title={`${published.date} ${published.time} ${published.timeZone}`}>
+          <span className="block font-mono text-sm tabular-nums">{published.date}</span>
+          <span className="mt-1 block font-mono text-xs text-muted-foreground">{published.time} {published.timeZone}</span>
+        </time> : <span className="text-sm text-muted-foreground">{t("未知", "Unknown")}</span>}
+      </TableCell>
       <TableCell className="text-right font-mono font-semibold">{compactNumber(post.lastCapturedAt ? post.views : null)}</TableCell>
       <TableCell className="text-right"><span className="font-mono font-semibold text-cyan-200">{post.lastCapturedAt ? `+${compactNumber(post.delta24h)}` : "—"}</span></TableCell>
       <TableCell className="hidden lg:table-cell"><div className="flex max-w-56 flex-wrap gap-1.5">{post.hookType ? <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{tagLabel(post.hookType, "hook_type", lang)}</Badge> : null}{post.topic ? <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{tagLabel(post.topic, "topic", lang)}</Badge> : null}{potential ? <Badge className={potential.className} variant="outline">{t(potential.label[0], potential.label[1])}</Badge> : null}</div></TableCell>

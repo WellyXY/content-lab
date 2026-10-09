@@ -6,7 +6,7 @@ import { Lightbulb, ShieldAlert, Sparkles, Target } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ComputedFeatures, Prediction, ScriptSegment } from "@/lib/content-lab";
+import { compactNumber, type Checkpoint, type ComputedFeatures, type Prediction, type ScriptSegment } from "@/lib/content-lab";
 import { useLocale } from "@/lib/i18n";
 
 const POTENTIAL = {
@@ -125,5 +125,43 @@ export function ComputedFeaturesCard({ computed }: { computed: ComputedFeatures 
   return <Card className="border-white/8 bg-card/80 shadow-none">
     <CardHeader className="border-b border-white/8 pb-5"><CardTitle className="text-lg">{t("程序计算特征", "Computed features")}</CardTitle><CardDescription>{t("由程序从视频与数据算出，不经过模型", "Measured by the program from the media and metadata, not by the model")}</CardDescription></CardHeader>
     <CardContent className="pt-5">{Object.keys(computed).length ? <dl className="space-y-3">{rows.map(([label, value]) => <div className="flex justify-between gap-4 text-sm" key={label}><dt className="shrink-0 text-muted-foreground">{label}</dt><dd className="text-right">{value}</dd></div>)}</dl> : <p className="py-8 text-center text-sm text-muted-foreground">{t("重试分析后会计算。", "Computed after the next analysis.")}</p>}</CardContent>
+  </Card>;
+}
+
+const pctRate = (value: number | null): string => (value == null ? "—" : `${(value * 100).toFixed(value < 0.01 ? 2 : 1)}%`);
+
+/** Early performance at fixed post ages; recorded as data first, before any prediction relies on it. */
+export function CheckpointsCard({ checkpoints }: { checkpoints: Checkpoint[] }) {
+  const { t } = useLocale();
+  const status = (item: Checkpoint): string => item.status === "missed"
+    ? t("未录到（当时尚未追踪）", "Not captured (not tracked then)")
+    : t("尚未到达", "Not reached yet");
+  return <Card className="border-white/8 bg-card/80 shadow-none">
+    <CardHeader className="border-b border-white/8 pb-5">
+      <CardTitle className="text-lg">{t("早期表现检查点", "Early performance checkpoints")}</CardTitle>
+      <CardDescription>{t("发布后 1/3/6/24/72 小时的播放与互动，由程序记录；互动率在播放满 1,000 后才计算。目前只累积数据，尚未用于预测。", "Views and engagement 1/3/6/24/72 hours after publishing, recorded by the program; rates start at 1,000 views. Collected as data only; not yet used for predictions.")}</CardDescription>
+    </CardHeader>
+    <CardContent className="overflow-x-auto pt-4">
+      {checkpoints.length ? <table className="w-full min-w-[640px] text-sm">
+        <thead><tr className="text-left text-xs text-muted-foreground">
+          <th className="py-2 font-normal">{t("检查点", "Checkpoint")}</th><th className="py-2 font-normal">{t("实际帖龄", "Actual age")}</th>
+          <th className="py-2 text-right font-normal">{t("播放", "Views")}</th><th className="py-2 text-right font-normal">{t("平均每小时", "Views / hour")}</th>
+          <th className="py-2 text-right font-normal">{t("点赞率", "Like rate")}</th><th className="py-2 text-right font-normal">{t("评论率", "Comment rate")}</th>
+          <th className="py-2 text-right font-normal">{t("分享率", "Share rate")}</th><th className="py-2 text-right font-normal">{t("收藏率", "Save rate")}</th>
+        </tr></thead>
+        <tbody>{checkpoints.map((item) => <tr className="border-t border-white/8" key={item.hours}>
+          <td className="py-2.5 font-mono text-primary">{item.hours}h</td>
+          {item.status === "recorded" ? <>
+            <td className="py-2.5 font-mono text-xs text-muted-foreground">{item.ageHours}h</td>
+            <td className="py-2.5 text-right font-mono">{compactNumber(item.views)}</td>
+            <td className="py-2.5 text-right font-mono">{compactNumber(item.viewsPerHour)}</td>
+            <td className="py-2.5 text-right font-mono">{pctRate(item.likeRate)}</td>
+            <td className="py-2.5 text-right font-mono">{pctRate(item.commentRate)}</td>
+            <td className="py-2.5 text-right font-mono">{pctRate(item.shareRate)}</td>
+            <td className="py-2.5 text-right font-mono">{pctRate(item.saveRate)}</td>
+          </> : <td className="py-2.5 text-xs text-muted-foreground" colSpan={7}>{status(item)}</td>}
+        </tr>)}</tbody>
+      </table> : <p className="py-6 text-center text-sm text-muted-foreground">{t("下一次采集后生成。", "Generated after the next capture.")}</p>}
+    </CardContent>
   </Card>;
 }

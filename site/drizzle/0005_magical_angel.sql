@@ -1,0 +1,1 @@
+ALTER TABLE `posts` ADD `checkpoints_json` text DEFAULT '[]' NOT NULL;

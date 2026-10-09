@@ -69,6 +69,7 @@ export function rowToPost(row: Record<string, unknown>): PostSummary {
     lastCapturedAt: nullableString(row.last_captured_at),
     rankPosition: nullableInteger(row.rank_position),
     rankTotal: nullableInteger(row.rank_total),
+    checkpoints: safeJson<PostSummary["checkpoints"]>(row.checkpoints_json, []),
     potential: ["high", "medium", "low"].includes(String(row.potential_band)) ? row.potential_band as PostSummary["potential"] : null,
     hookType: nullableString(row.hook_type),
     topic: nullableString(row.topic),

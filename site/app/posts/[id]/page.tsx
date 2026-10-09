@@ -7,7 +7,7 @@ import { Clock3, Film, Flame, MessageCircle, Play, RefreshCw, Share2, Sparkles, 
 import { Line, LineChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
-import { AssessmentCard, ComputedFeaturesCard, ScriptTimeline } from "@/components/content-lab/analysis-panels";
+import { AssessmentCard, CheckpointsCard, ComputedFeaturesCard, ScriptTimeline } from "@/components/content-lab/analysis-panels";
 import { RelativeTime } from "@/components/content-lab/relative-time";
 import { useLocale } from "@/lib/i18n";
 import { Badge } from "@/components/ui/badge";
@@ -138,6 +138,8 @@ export default function PostDetailPage() {
 
         <ComputedFeaturesCard computed={data.features?.computed ?? {}} />
       </section>
+
+      <div className="mt-4"><CheckpointsCard checkpoints={post.checkpoints ?? []} /></div>
 
       <div className="mt-4"><AssessmentCard market={post.market} prediction={prediction} /></div>
 

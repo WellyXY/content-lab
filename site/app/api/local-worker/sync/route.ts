@@ -114,8 +114,8 @@ async function syncPost(db: D1Database, event: SyncEvent) {
   await db.prepare(`INSERT INTO posts (
       id, video_id, url, creator_handle, market, project_tag, post_type, caption, music_title, thumbnail_url,
       published_at, bound_at, tracking_state, analysis_state, next_capture_at, views, likes, comments, shares, saves,
-      delta_24h, source, last_captured_at, updated_at, media_url
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      delta_24h, source, last_captured_at, updated_at, media_url, checkpoints_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       video_id = excluded.video_id, url = excluded.url, creator_handle = excluded.creator_handle,
       market = excluded.market, project_tag = excluded.project_tag, post_type = excluded.post_type,
@@ -124,7 +124,8 @@ async function syncPost(db: D1Database, event: SyncEvent) {
       analysis_state = excluded.analysis_state, next_capture_at = excluded.next_capture_at,
       views = excluded.views, likes = excluded.likes, comments = excluded.comments, shares = excluded.shares,
       saves = excluded.saves, delta_24h = excluded.delta_24h, source = excluded.source,
-      last_captured_at = excluded.last_captured_at, updated_at = excluded.updated_at, media_url = excluded.media_url`).bind(
+      last_captured_at = excluded.last_captured_at, updated_at = excluded.updated_at, media_url = excluded.media_url,
+      checkpoints_json = excluded.checkpoints_json`).bind(
       hostedPostId,
       nullableString(value(["videoId", "video_id"], existing?.video_id)),
       url,
@@ -150,6 +151,7 @@ async function syncPost(db: D1Database, event: SyncEvent) {
       nullableString(value(["lastCapturedAt", "last_captured_at"], existing?.last_captured_at)),
       now,
       nullableString(value(["mediaUrl", "media_url"], existing?.media_url)),
+      Array.isArray(pick(payload, "checkpoints")) ? JSON.stringify(pick(payload, "checkpoints")) : nullableString(existing?.checkpoints_json) ?? "[]",
     ).run();
   await db.prepare(`INSERT INTO post_aliases (source_key, post_id, created_at) VALUES (?, ?, ?)
     ON CONFLICT(source_key) DO UPDATE SET post_id = excluded.post_id`)

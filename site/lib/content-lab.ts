@@ -39,10 +39,25 @@ export type PostSummary = {
   lastCapturedAt: string | null;
   rankPosition?: number | null;
   rankTotal?: number | null;
+  /** Early performance at 1/3/6/24/72 hours after publishing, computed by the worker. */
+  checkpoints?: Checkpoint[];
   /** Viral potential from the latest playbook assessment. */
   potential?: "high" | "medium" | "low" | null;
   hookType?: string | null;
   topic?: string | null;
+};
+
+export type Checkpoint = {
+  hours: number;
+  status: "recorded" | "missed" | "pending";
+  capturedAt: string | null;
+  ageHours: number | null;
+  views: number | null;
+  viewsPerHour: number | null;
+  likeRate: number | null;
+  commentRate: number | null;
+  shareRate: number | null;
+  saveRate: number | null;
 };
 
 export type Snapshot = {
