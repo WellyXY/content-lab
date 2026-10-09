@@ -99,7 +99,7 @@ export default function PostDetailPage() {
             <span className="flex flex-wrap items-center gap-x-2 gap-y-1"><Clock3 aria-hidden="true" className="size-3.5" /><span>{t("发布时间", "Published")}</span>{published
               ? <time className="font-mono text-foreground/90" dateTime={post.publishedAt ?? undefined}>{published.date} {published.time} <span className="text-muted-foreground">{published.timeZone}</span></time>
               : <span>{t("未知", "Unknown")}</span>}</span>
-            <span className="flex items-center gap-1.5"><RefreshCw aria-hidden="true" className="size-3.5" />{t("数据更新", "Data updated")}<RelativeTime value={post.lastCapturedAt} /></span>
+            <span className="flex items-center gap-1.5"><RefreshCw aria-hidden="true" className="size-3.5" /><span>{t("数据更新：", "Data updated: ")}<RelativeTime value={post.lastCapturedAt} /></span></span>
           </div>
         </div>
         <div className="flex shrink-0 gap-2">

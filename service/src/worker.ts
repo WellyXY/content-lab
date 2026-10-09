@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { resetAgentThread, runAgentTurn } from "./agent/agent.js";
 import { AnalyzerQuotaError } from "./analyzer/claude.js";
 import { CodexAuthError, analyzePost } from "./analyzer/codex.js";
 import { assessPost, generatePlaybook, marketWeekStart, marketsDueForPlaybook, postsAwaitingAssessment } from "./analyzer/playbook.js";
@@ -38,6 +39,10 @@ const feishuBot = config.feishuAppId && config.feishuAppSecret ? createContentLa
   allowedChatIds: config.feishuAllowedChatIds,
   lockPath: config.feishuBotLockPath,
   db,
+  agent: {
+    answer: async ({ threadKey, author, text }) => (await runAgentTurn(db, config, { threadKey, channel: "feishu", author, text })).reply,
+    reset: (threadKey) => resetAgentThread(db, threadKey),
+  },
   log,
 }) : null;
 

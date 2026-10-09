@@ -23,8 +23,29 @@ export interface ContentLabFeishuBotOptions {
   allowedChatIds: readonly string[];
   lockPath: string;
   db: ContentLabDatabase;
+  /** Conversational answers; without it the bot only runs the fixed queries. */
+  agent?: FeishuAgent;
   log?: (event: string, detail?: Record<string, unknown>) => void;
 }
+
+export interface FeishuAgent {
+  answer: (input: { threadKey: string; author: string; text: string }) => Promise<string>;
+  reset: (threadKey: string) => void;
+}
+
+export const THINKING_TEXT = "思考中…";
+/** Feishu cards hold about 30 KB; keep answers well inside it. */
+const MAX_ANSWER_CHARS = 9_000;
+
+export const answerCard = (markdown: string): Record<string, unknown> => ({
+  config: { wide_screen_mode: true },
+  elements: [{ tag: "markdown", content: markdown.length > MAX_ANSWER_CHARS ? `${markdown.slice(0, MAX_ANSWER_CHARS)}\n\n…（回复过长，已截断）` : markdown }],
+});
+
+/** One ongoing conversation per direct chat, one per thread in a group. */
+export const feishuThreadKey = (message: ContentLabInboundMessage): string => message.chatType === "p2p"
+  ? `feishu:p2p:${message.senderId}`
+  : `feishu:thread:${message.threadId ?? message.messageId}`;
 
 export interface ContentLabFeishuBot {
   connect: () => Promise<void>;
@@ -67,6 +88,11 @@ export async function handleContentLabFeishuMessage(input: {
   db: ContentLabDatabase;
   message: ContentLabInboundMessage;
   reply: (text: string, uuid: string, replyInThread: boolean) => Promise<void>;
+  agent?: FeishuAgent;
+  /** Sends the thinking placeholder and returns its message id. */
+  sendThinking?: () => Promise<string | null>;
+  recall?: (messageId: string) => Promise<void>;
+  replyCard?: (markdown: string, uuid: string, replyInThread: boolean) => Promise<void>;
   log?: (event: string, detail?: Record<string, unknown>) => void;
 }): Promise<"answered" | "rejected"> {
   const { message } = input;
@@ -84,9 +110,36 @@ export async function handleContentLabFeishuMessage(input: {
     await reply("查詢內容過長；請縮短到 2,000 字以內。");
     return "answered";
   }
+  const question = message.content.trim();
+  const threadKey = feishuThreadKey(message);
+  if (input.agent && /^\/(new|新对话|新對話|reset)\b/i.test(question)) {
+    input.agent.reset(threadKey);
+    await reply("已开始新对话。");
+    return "answered";
+  }
+  if (input.agent && !question.startsWith("/")) {
+    // Acknowledge at once, then recall the placeholder and post the answer.
+    const placeholder = await input.sendThinking?.().catch((error: unknown) => {
+      log("feishu_thinking_failed", { error: error instanceof Error ? error.message : String(error) });
+      return null;
+    }) ?? null;
+    let answer: string;
+    try {
+      answer = await input.agent.answer({ threadKey, author: message.senderId, text: question });
+      log("feishu_agent_answered", { chatType: message.chatType, chars: answer.length });
+    } catch (error) {
+      log("feishu_agent_failed", { error: error instanceof Error ? error.message : String(error) });
+      answer = /usage limit|limit reached|rate.?limit/i.test(String(error)) ? "Claude 用量暂时到达上限，请稍后再问。" : "这次没能完成回答，请稍后再试，或换个问法。";
+    }
+    if (placeholder) await input.recall?.(placeholder).catch((error: unknown) => log("feishu_recall_failed", { error: error instanceof Error ? error.message : String(error) }));
+    const uuid = feishuReplyUuid(input.appId, message.messageId);
+    if (input.replyCard) await input.replyCard(answer, uuid, Boolean(message.threadId));
+    else await input.reply(answer, uuid, Boolean(message.threadId));
+    return "answered";
+  }
   let text: string;
   try {
-    text = answerContentLabQuery(input.db, message.content);
+    text = answerContentLabQuery(input.db, question.replace(/^\//, ""));
   } catch (error) {
     log("feishu_query_failed", { error: error instanceof Error ? error.message : String(error) });
     text = "Content Lab 查詢暫時失敗，請稍後再試。";
@@ -168,6 +221,28 @@ export function createContentLabFeishuBot(options: ContentLabFeishuBotOptions): 
         db: options.db,
         message,
         log,
+        ...(options.agent ? {
+          agent: options.agent,
+          sendThinking: async () => {
+            const response = await instance.rawClient.im.v1.message.reply({
+              path: { message_id: message.messageId },
+              data: { msg_type: "text", content: JSON.stringify({ text: THINKING_TEXT }), reply_in_thread: Boolean(message.threadId) },
+            });
+            assertFeishuSuccess(response, "Feishu thinking placeholder");
+            return response.data?.message_id ?? null;
+          },
+          recall: async (messageId: string) => {
+            const response = await instance.rawClient.im.v1.message.delete({ path: { message_id: messageId } });
+            assertFeishuSuccess(response, "Feishu message.delete");
+          },
+          replyCard: async (markdown: string, uuid: string, replyInThread: boolean) => {
+            const response = await instance.rawClient.im.v1.message.reply({
+              path: { message_id: message.messageId },
+              data: { msg_type: "interactive", content: JSON.stringify(answerCard(markdown)), reply_in_thread: replyInThread, uuid },
+            });
+            assertFeishuSuccess(response, "Feishu answer card");
+          },
+        } : {}),
         reply: async (text, uuid, replyInThread) => {
           const response = await instance.rawClient.im.v1.message.reply({
             path: { message_id: message.messageId },

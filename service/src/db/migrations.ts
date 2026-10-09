@@ -107,6 +107,31 @@ const MIGRATIONS = [
   `
   ALTER TABLE posts ADD COLUMN checkpoints_json TEXT;
   `,
+  `
+  CREATE TABLE memories (
+    id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('rule','correction','preference','fact')),
+    content TEXT NOT NULL,
+    source TEXT NOT NULL,
+    author TEXT,
+    thread_key TEXT,
+    created_at TEXT NOT NULL,
+    archived_at TEXT
+  ) STRICT;
+  CREATE INDEX memories_scope ON memories(scope) WHERE archived_at IS NULL;
+
+  CREATE TABLE agent_sessions (
+    thread_key TEXT PRIMARY KEY, channel TEXT NOT NULL, session_id TEXT NOT NULL, updated_at TEXT NOT NULL
+  ) STRICT;
+
+  CREATE TABLE agent_turns (
+    id TEXT PRIMARY KEY, thread_key TEXT NOT NULL, channel TEXT NOT NULL, author TEXT,
+    user_text TEXT NOT NULL, reply_text TEXT, tool_calls INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER, error TEXT, created_at TEXT NOT NULL
+  ) STRICT;
+  CREATE INDEX agent_turns_thread ON agent_turns(thread_key, created_at);
+  `,
 ] as const;
 
 export function migrate(db: DatabaseSync): void {
