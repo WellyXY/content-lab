@@ -112,6 +112,23 @@ export const predictions = sqliteTable(
   (table) => [index("idx_predictions_post_made_at").on(table.postId, table.madeAt)],
 );
 
+export const recreations = sqliteTable(
+  "recreations",
+  {
+    id: text("id").primaryKey(),
+    postId: text("post_id").notNull(),
+    status: text("status").notNull().default("queued"),
+    notesJson: text("notes_json"),
+    videoUrl: text("video_url"),
+    coverUrl: text("cover_url"),
+    error: text("error"),
+    counts: integer("counts").notNull().default(1),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [index("idx_recreations_post").on(table.postId, table.createdAt)],
+);
+
 export const alerts = sqliteTable(
   "alerts",
   {

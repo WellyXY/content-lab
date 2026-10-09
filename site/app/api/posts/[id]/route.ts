@@ -1,6 +1,7 @@
 import { type PostDetailData } from "@/lib/content-lab";
 import { getD1, jsonError, rowToAlert, rowToFeature, rowToPost, rowToPrediction, rowToSnapshot } from "@/lib/server/content-db";
 import { postKeyframes } from "@/lib/server/media-storage";
+import { rowToRecreation } from "@/lib/server/recreations";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ export async function GET(_request: Request, context: Context) {
 
   try {
     const db = getD1();
-    const [postResult, snapshotsResult, featureResult, predictionsResult, alertsResult] = await db.batch([
+    const [postResult, snapshotsResult, featureResult, predictionsResult, alertsResult, recreationsResult] = await db.batch([
       db.prepare(`SELECT p.*,
         pred.rank_position, pred.rank_total,
         json_extract(f.tags_json, '$.hook_type.value') AS hook_type,
@@ -26,6 +27,7 @@ export async function GET(_request: Request, context: Context) {
       db.prepare("SELECT * FROM post_features WHERE post_id = ? LIMIT 1").bind(id),
       db.prepare("SELECT * FROM predictions WHERE post_id = ? ORDER BY made_at DESC LIMIT 30").bind(id),
       db.prepare("SELECT * FROM alerts WHERE post_id = ? ORDER BY fired_at DESC LIMIT 30").bind(id),
+      db.prepare("SELECT * FROM recreations WHERE post_id = ? ORDER BY created_at DESC LIMIT 10").bind(id),
     ]);
     const postRow = postResult.results[0] as Record<string, unknown> | undefined;
     if (!postRow) return jsonError("找不到这条帖子 · Post not found", 404);
@@ -39,6 +41,7 @@ export async function GET(_request: Request, context: Context) {
       features: rowToFeature(featureResult.results[0] as Record<string, unknown> | undefined ?? null),
       predictions: predictionsResult.results.map((row) => rowToPrediction(row as Record<string, unknown>)),
       alerts: alertsResult.results.map((row) => rowToAlert(row as Record<string, unknown>)),
+      recreations: recreationsResult.results.map((row) => rowToRecreation(row as Record<string, unknown>)),
     };
     return Response.json(response, { headers: { "cache-control": "no-store" } });
   } catch (error) {

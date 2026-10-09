@@ -13,7 +13,7 @@ import {
 
 const eventSchema = z.object({
   id: z.string().min(1).max(160),
-  type: z.enum(["post", "snapshot", "features", "prediction", "job", "alert", "playbook", "post_deleted"]),
+  type: z.enum(["post", "snapshot", "features", "prediction", "job", "alert", "playbook", "post_deleted", "recreation"]),
   entityKey: z.string().min(1).max(160),
   occurredAt: z.string().datetime({ offset: true }),
   payload: z.record(z.string(), z.unknown()),
@@ -77,7 +77,24 @@ async function applyEvent(db: D1Database, event: SyncEvent) {
     case "alert": return syncAlert(db, event);
     case "playbook": return syncPlaybook(db, event);
     case "post_deleted": return syncPostDeleted(db, event);
+    case "recreation": return syncRecreation(db, event);
   }
+}
+
+/** Status, notes and file paths of an Agent recreation, as the worker progresses. */
+async function syncRecreation(db: D1Database, event: SyncEvent) {
+  const payload = event.payload;
+  const id = nullableString(pick(payload, "id")) ?? event.entityKey;
+  const postId = nullableString(pick(payload, "postId"));
+  if (!postId) throw new Error("recreation.postId is required");
+  const now = new Date().toISOString();
+  await db.prepare(`INSERT INTO recreations (id, post_id, status, notes_json, video_url, cover_url, error, counts, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET status = excluded.status, notes_json = COALESCE(excluded.notes_json, recreations.notes_json),
+      video_url = COALESCE(excluded.video_url, recreations.video_url), cover_url = COALESCE(excluded.cover_url, recreations.cover_url),
+      error = excluded.error, counts = excluded.counts, updated_at = excluded.updated_at`)
+    .bind(id, postId, String(pick(payload, "status") ?? "queued"), nullableString(pick(payload, "notesJson")), nullableString(pick(payload, "videoUrl")),
+      nullableString(pick(payload, "coverUrl")), nullableString(pick(payload, "error")), Number(pick(payload, "counts") ?? 1), now, now).run();
 }
 
 /** The owner removed a post locally: drop the hosted copy and everything attached to it. */
@@ -104,6 +121,7 @@ async function syncPostDeleted(db: D1Database, event: SyncEvent) {
     db.prepare("DELETE FROM predictions WHERE post_id = ?").bind(id),
     db.prepare("DELETE FROM alerts WHERE post_id = ?").bind(id),
     db.prepare("DELETE FROM post_aliases WHERE post_id = ?").bind(id),
+    db.prepare("DELETE FROM recreations WHERE post_id = ?").bind(id),
     db.prepare("DELETE FROM jobs WHERE json_extract(payload_json, '$.sitePostId') = ? OR json_extract(payload_json, '$.postId') = ?").bind(id, id),
     db.prepare("DELETE FROM posts WHERE id = ?").bind(id),
   ]);

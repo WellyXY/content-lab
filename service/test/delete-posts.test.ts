@@ -36,6 +36,7 @@ describe("deleting posts", () => {
     recordSnapshot(db, keep, { views: 20, likes: 1, comments: 0, shares: 0, saves: 0 }, "tikwm");
     enqueueJob(db, { kind: "analyze", payload: { postId: drop.id, version: 1 }, idempotencyKey: `analyze:${drop.id}:1` });
     enqueueJob(db, { kind: "ingest", payload: { url: "https://www.tiktok.com/@x", sitePostId: "site-3" }, idempotencyKey: "ingest:x" });
+    db.prepare("INSERT INTO recreations(id, post_id, site_post_id, status, created_at, updated_at) VALUES ('rc', ?, 'site-2', 'complete', 't', 't')").run(drop.id);
     const deleted = deletePosts(db, { postIds: [drop.id], urls: ["https://www.tiktok.com/@x"] }, null);
     expect(deleted).toEqual([
       { localPostId: drop.id, sitePostId: "site-2", url: drop.url },
@@ -46,6 +47,7 @@ describe("deleting posts", () => {
     expect(count(`SELECT COUNT(*) AS n FROM metric_snapshots WHERE post_id='${drop.id}'`)).toBe(0);
     expect(count(`SELECT COUNT(*) AS n FROM metric_snapshots WHERE post_id='${keep.id}'`)).toBe(1);
     expect(count("SELECT COUNT(*) AS n FROM jobs")).toBe(0);
+    expect(count("SELECT COUNT(*) AS n FROM recreations")).toBe(0);
     expect(count(`SELECT COUNT(*) AS n FROM sync_outbox WHERE entity_key='${drop.id}' AND type!='post_deleted'`)).toBe(0);
     expect(count("SELECT COUNT(*) AS n FROM sync_outbox WHERE type='post_deleted'")).toBe(2);
     db.close();

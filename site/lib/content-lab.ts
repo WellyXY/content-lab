@@ -192,7 +192,21 @@ export type DashboardData = {
   marketBreakdown: Array<{ market: string; views: number; posts: number }>;
 };
 
+export type Recreation = {
+  id: string;
+  status: "queued" | "preparing" | "designing" | "rendering" | "complete" | "failed";
+  notes: { summary_zh: string; summary_en: string; changes: Array<{ zh: string; en: string; suggestion: string | null }> } | null;
+  videoUrl: string | null;
+  coverUrl: string | null;
+  error: string | null;
+  /** 0 when the attempt does not count against the per-post limit. */
+  counts: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type PostDetailData = {
+  recreations?: Recreation[];
   keyframes?: string[];
   mediaError?: string | null;
   post: PostSummary;
