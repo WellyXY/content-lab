@@ -31,6 +31,8 @@ export interface ServiceConfig {
   brandGlossaryPath: string;
   /** Only a Site release that understands playbook events may receive them; older Sites reject the whole batch. */
   sitePlaybookSync: boolean;
+  /** Send post_deleted events; enable after the Site release that accepts them. */
+  siteDeleteSync: boolean;
   codexModel: string | null;
   codexConcurrency: number;
   tikwmMinIntervalMs: number;
@@ -85,6 +87,7 @@ export function loadConfig(): ServiceConfig {
     analyzerConcurrency: integer("ANALYZER_CONCURRENCY", 3, 1),
     whisperModel: optional("WHISPER_MODEL") === "off" ? null : optional("WHISPER_MODEL") ?? "small",
     sitePlaybookSync: optional("SITE_PLAYBOOK_SYNC") === "1",
+    siteDeleteSync: optional("SITE_DELETE_SYNC") === "1",
     brandGlossaryPath: resolve(process.env.CONTENT_LAB_BRAND_GLOSSARY || resolve(repoDir, "docs/brand-glossary.json")),
     codexModel: optional("CODEX_MODEL"),
     codexConcurrency: integer("CODEX_CONCURRENCY", 1, 1),

@@ -27,7 +27,7 @@ export const REMOTE_ANALYZE_POST_COOLDOWN_MS = 6 * 3_600_000;
 
 export type SiteSyncEvent = {
   id: string;
-  type: "post" | "snapshot" | "features" | "prediction" | "job" | "alert" | "playbook";
+  type: "post" | "snapshot" | "features" | "prediction" | "job" | "alert" | "playbook" | "post_deleted";
   entityKey: string;
   occurredAt: string;
   payload: unknown;
@@ -161,12 +161,13 @@ interface OutboxRow {
   id: string; type: SiteSyncEvent["type"]; entity_key: string; occurred_at: string; payload_json: string; attempts: number;
 }
 
-export async function flushSyncOutbox(db: ContentLabDatabase, client: SiteSyncClient, limit = 50): Promise<number> {
+/** `includeDeletes` stays off until the Site accepts post_deleted events; an older Site rejects the whole batch. */
+export async function flushSyncOutbox(db: ContentLabDatabase, client: SiteSyncClient, limit = 50, options: { includeDeletes?: boolean } = {}): Promise<number> {
   const now = new Date().toISOString();
   const rows = db.prepare(`
     SELECT id, type, entity_key, occurred_at, payload_json, attempts FROM sync_outbox
-    WHERE next_attempt_at <= ? ORDER BY occurred_at LIMIT ?
-  `).all(now, Math.max(1, Math.min(limit, 50))) as unknown as OutboxRow[];
+    WHERE next_attempt_at <= ? AND (type != 'post_deleted' OR ?) ORDER BY occurred_at LIMIT ?
+  `).all(now, options.includeDeletes ? 1 : 0, Math.max(1, Math.min(limit, 50))) as unknown as OutboxRow[];
   if (rows.length === 0) return 0;
   const events: SiteSyncEvent[] = rows.map((row) => ({ id: row.id, type: row.type, entityKey: row.entity_key, occurredAt: row.occurred_at, payload: JSON.parse(row.payload_json) as unknown }));
   try {

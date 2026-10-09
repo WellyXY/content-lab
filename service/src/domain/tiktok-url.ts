@@ -32,6 +32,15 @@ export function extractVideoId(input: string): string | null {
   return pathname.match(/\/(?:video|photo)\/(\d{8,})/)?.[1] ?? null;
 }
 
+/** Normalize a link that must point at one video or photo post (or a short link to one); profile and other pages are refused. */
+export function normalizeTikTokPostUrl(input: string): string {
+  const url = normalizeTikTokUrl(input);
+  if (extractVideoId(url) || isShortTikTokUrl(url)) return url;
+  throw new Error(/^\/@[^/]+$/.test(new URL(url).pathname)
+    ? "这是 TikTok 账号主页，不是帖子链接；请打开具体视频后复制链接"
+    : "不是 TikTok 帖子链接（需要 /video/ 或 /photo/ 链接，或 vt.tiktok.com 短链）");
+}
+
 export async function expandTikTokUrl(input: string, fetchImpl: typeof fetch = fetch): Promise<string> {
   const normalized = normalizeTikTokUrl(input);
   if (!isShortTikTokUrl(normalized)) return normalized;

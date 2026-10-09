@@ -260,6 +260,8 @@ export async function ingestPost(
   now = new Date().toISOString(),
 ): Promise<PostRow> {
   const result = await provider.fetchPost(payload.url);
+  // A profile or other page can come back with the handle as its id; never store that as a post.
+  if (!/^\d{8,}$/.test(result.metadata.videoId)) throw new Error(`Not a TikTok video or photo post: ${payload.url}`);
   db.exec("BEGIN IMMEDIATE");
   try {
     const post = upsertPost(db, result, { market: payload.market ?? null, projectTag: payload.projectTag ?? null, boundBy: payload.boundBy ?? null, sitePostId: payload.sitePostId ?? null }, now);

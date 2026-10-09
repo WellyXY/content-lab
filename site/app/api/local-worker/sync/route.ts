@@ -13,7 +13,7 @@ import {
 
 const eventSchema = z.object({
   id: z.string().min(1).max(160),
-  type: z.enum(["post", "snapshot", "features", "prediction", "job", "alert", "playbook"]),
+  type: z.enum(["post", "snapshot", "features", "prediction", "job", "alert", "playbook", "post_deleted"]),
   entityKey: z.string().min(1).max(160),
   occurredAt: z.string().datetime({ offset: true }),
   payload: z.record(z.string(), z.unknown()),
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
 }
 
 function eventPriority(type: SyncEvent["type"]): number {
-  return type === "post" ? 0 : type === "job" ? 2 : 1;
+  return type === "post" ? 0 : type === "job" ? 2 : type === "post_deleted" ? 3 : 1;
 }
 
 async function applyEvent(db: D1Database, event: SyncEvent) {
@@ -76,7 +76,38 @@ async function applyEvent(db: D1Database, event: SyncEvent) {
     case "job": return syncJob(db, event);
     case "alert": return syncAlert(db, event);
     case "playbook": return syncPlaybook(db, event);
+    case "post_deleted": return syncPostDeleted(db, event);
   }
+}
+
+/** The owner removed a post locally: drop the hosted copy and everything attached to it. */
+async function syncPostDeleted(db: D1Database, event: SyncEvent) {
+  const payload = event.payload;
+  const localPostId = nullableString(pick(payload, "localPostId", "local_post_id"));
+  const sitePostId = nullableString(pick(payload, "sitePostId", "site_post_id"));
+  const url = nullableString(pick(payload, "url"));
+  const ids = new Set<string>();
+  if (sitePostId) ids.add(sitePostId);
+  if (localPostId) {
+    const alias = await db.prepare("SELECT post_id FROM post_aliases WHERE source_key = ? LIMIT 1").bind(localPostId).first<Record<string, unknown>>();
+    if (alias?.post_id) ids.add(String(alias.post_id));
+    const own = await db.prepare("SELECT id FROM posts WHERE id = ? LIMIT 1").bind(localPostId).first<Record<string, unknown>>();
+    if (own?.id) ids.add(String(own.id));
+  }
+  if (url) {
+    const byUrl = await db.prepare("SELECT id FROM posts WHERE url = ? LIMIT 1").bind(url).first<Record<string, unknown>>();
+    if (byUrl?.id) ids.add(String(byUrl.id));
+  }
+  const statements = [...ids].flatMap((id) => [
+    db.prepare("DELETE FROM metric_snapshots WHERE post_id = ?").bind(id),
+    db.prepare("DELETE FROM post_features WHERE post_id = ?").bind(id),
+    db.prepare("DELETE FROM predictions WHERE post_id = ?").bind(id),
+    db.prepare("DELETE FROM alerts WHERE post_id = ?").bind(id),
+    db.prepare("DELETE FROM post_aliases WHERE post_id = ?").bind(id),
+    db.prepare("DELETE FROM jobs WHERE json_extract(payload_json, '$.sitePostId') = ? OR json_extract(payload_json, '$.postId') = ?").bind(id, id),
+    db.prepare("DELETE FROM posts WHERE id = ?").bind(id),
+  ]);
+  if (statements.length > 0) await db.batch(statements);
 }
 
 async function syncPost(db: D1Database, event: SyncEvent) {

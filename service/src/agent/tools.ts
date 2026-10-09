@@ -6,7 +6,7 @@ import { z } from "zod";
 import { latestPlaybook, renderPlaybookMarkdown } from "../analyzer/playbook.js";
 import { bindPosts, type BindLimits } from "../bind.js";
 import type { ContentLabDatabase } from "../db/database.js";
-import { normalizeTikTokUrl } from "../domain/tiktok-url.js";
+import { normalizeTikTokPostUrl } from "../domain/tiktok-url.js";
 import type { FeishuDocument } from "../feishu/docs.js";
 import { enqueueJob } from "../jobs/queue.js";
 import { addMemory, archiveMemory, listMemories } from "./memory.js";
@@ -204,7 +204,7 @@ tags_json: {dimension: {value, confidence}}; use json_extract.`, { sql: z.string
       const invalid: Array<{ url: string; reason: string }> = [];
       const normalized: string[] = [];
       for (const url of urls) {
-        try { normalized.push(normalizeTikTokUrl(url)); } catch (error) { invalid.push({ url, reason: error instanceof Error ? error.message : String(error) }); }
+        try { normalized.push(normalizeTikTokPostUrl(url)); } catch (error) { invalid.push({ url, reason: error instanceof Error ? error.message : String(error) }); }
       }
       if (normalized.length === 0) return fail(`没有可绑定的 TikTok 链接：${JSON.stringify(invalid)}`);
       const result = bindPosts(db, context.bindLimits, { urls: normalized, market, projectTag: projectTag || null, boundBy: `agent:${context.channel}` });

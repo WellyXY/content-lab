@@ -153,6 +153,12 @@ export function normalizeTikTokUrl(input: string): { url: string; videoId: strin
   parsed.hostname = hostname;
   parsed.pathname = parsed.pathname.replace(/\/{2,}/g, "/").replace(/\/$/, "") || "/";
   const videoId = parsed.pathname.match(/\/(?:video|photo)\/(\d+)/)?.[1] ?? null;
+  const shortLink = hostname === "vt.tiktok.com" || hostname === "vm.tiktok.com" || /^\/t\/[A-Za-z0-9]+$/.test(parsed.pathname);
+  if (!videoId && !shortLink) {
+    throw new Error(/^\/@[^/]+$/.test(parsed.pathname)
+      ? "这是账号主页，不是帖子链接；请打开具体视频后复制链接 · This is a profile page, not a post link; open the video and copy its link"
+      : "不是 TikTok 帖子链接 · Not a TikTok post link (needs /video/, /photo/ or a vt.tiktok.com short link)");
+  }
   return { url: parsed.toString(), videoId };
 }
 

@@ -11,7 +11,7 @@ import { bindPosts, consumeBudget } from "./bind.js";
 import type { ServiceConfig } from "./config.js";
 import { syncPostReadModel } from "./collector.js";
 import type { ContentLabDatabase } from "./db/database.js";
-import { normalizeTikTokUrl } from "./domain/tiktok-url.js";
+import { normalizeTikTokPostUrl } from "./domain/tiktok-url.js";
 import { retryJob } from "./jobs/queue.js";
 
 export type PublicAppConfig = Pick<ServiceConfig, "bindHourlyPerIp" | "dailyNewPosts" | "maxActivePosts" | "bindSecret" | "turnstileSecret">
@@ -97,7 +97,7 @@ export function createApp(input: { db: ContentLabDatabase; config: PublicAppConf
     }
     let urls: string[];
     try {
-      urls = [...new Set(parsed.data.urls.map(normalizeTikTokUrl))];
+      urls = [...new Set(parsed.data.urls.map(normalizeTikTokPostUrl))];
     } catch (error) {
       return c.json({ error: "invalid_tiktok_url", message: error instanceof Error ? error.message : String(error) }, 400);
     }

@@ -20,7 +20,8 @@
     "test:watch": "vitest",
     "playbook": "tsx src/playbook-cli.ts",
     "resync": "tsx src/resync.ts",
-    "agent": "tsx src/agent-cli.ts"
+    "agent": "tsx src/agent-cli.ts",
+    "delete-posts": "tsx src/delete-posts-cli.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.295",

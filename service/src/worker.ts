@@ -7,7 +7,7 @@ import { assessPost, generatePlaybook, marketWeekStart, marketsDueForPlaybook, p
 import { capturePost, ingestPost, recordCodexAuthAlert, refreshPostMetadata, syncPostReadModel } from "./collector.js";
 import { loadConfig } from "./config.js";
 import { openDatabase, type ContentLabDatabase } from "./db/database.js";
-import { normalizeTikTokUrl } from "./domain/tiktok-url.js";
+import { normalizeTikTokPostUrl } from "./domain/tiktok-url.js";
 import { createContentLabFeishuBot } from "./feishu/bot.js";
 import { createFeishuWebhookTransport, deliverAlertOutbox, type FeishuAlertTransport } from "./feishu.js";
 import { completeJob, deferJob, enqueueJob, failJob, leaseJobs, type Job } from "./jobs/queue.js";
@@ -54,7 +54,7 @@ const alertTransports: FeishuAlertTransport[] = [
 async function pushPendingEvents(): Promise<void> {
   if (!syncClient) return;
   try {
-    const count = await flushSyncOutbox(db, syncClient);
+    const count = await flushSyncOutbox(db, syncClient, 50, { includeDeletes: config.siteDeleteSync });
     if (count > 0) log("site_events_pushed", { count });
   } catch (error) {
     log("site_push_failed", { error: error instanceof Error ? error.message : String(error) });
@@ -101,7 +101,7 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
     if (!syncClient || !job.syncRemoteId) throw new Error("Remote bind job cannot run without site sync configuration");
     const payload = job.payload as { urls?: string[]; sitePostId?: string; market?: string | null; projectTag?: string | null; boundBy?: string | null };
     if (!Array.isArray(payload.urls) || payload.urls.length < 1 || payload.urls.length > 50) throw new Error("Remote bind job has an invalid URL batch");
-    const urls = [...new Set(payload.urls.map(normalizeTikTokUrl))];
+    const urls = [...new Set(payload.urls.map(normalizeTikTokPostUrl))];
     if (payload.sitePostId && urls.length !== 1) throw new Error("A sitePostId remote bind job must contain exactly one URL");
     for (const url of urls) {
       enqueueJob(database, {
