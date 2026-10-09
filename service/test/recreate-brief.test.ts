@@ -26,3 +26,12 @@ describe("recreate brief", () => {
     expect(brief).toMatch(/do not invent/i);
   });
 });
+
+describe("recreate prompt scope", () => {
+  it("limits the agent to what an edit can do, keeps the brand subtle, and asks for skipped suggestions", () => {
+    expect(RECREATE_SYSTEM_PROMPT).toMatch(/cannot film|no new footage/i);
+    expect(RECREATE_SYSTEM_PROMPT).toMatch(/skipped/);
+    expect(RECREATE_SYSTEM_PROMPT).toMatch(/never .*download/i);
+    expect(RECREATE_SYSTEM_PROMPT).not.toMatch(/\bCTA\b/);
+  });
+});

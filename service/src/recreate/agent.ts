@@ -12,7 +12,7 @@ import { HYPERFRAMES_ENV } from "./workspace.js";
 const cleanEnv = (): Record<string, string> => Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 
 const QUOTA = /usage limit|limit reached|rate.?limit|resets? (?:at|in)|overloaded|\b429\b|\b529\b/i;
-export interface RecreateNotes { summary_zh: string; summary_en: string; changes: Array<{ zh: string; en: string; suggestion: string | null }> }
+export interface RecreateNotes { summary_zh: string; summary_en: string; changes: Array<{ zh: string; en: string; suggestion: string | null }>; skipped?: Array<{ zh: string; en: string; suggestion: string | null }> }
 
 export async function runRecreateAgent(dir: string, model: string, deps: { query?: typeof query; timeoutMs?: number } = {}): Promise<{ notes: RecreateNotes; turns: number }> {
   const run = deps.query ?? query;

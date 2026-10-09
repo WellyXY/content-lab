@@ -84,6 +84,12 @@ export function RecreatePanel({ recreations }: { recreations: Recreation[] }) {
               <div className="space-y-2 text-sm">
                 <p>{lang === "en" ? item.notes.summary_en : item.notes.summary_zh}</p>
                 {item.notes.changes.length ? <ul className="list-disc space-y-1 pl-5 text-muted-foreground">{item.notes.changes.map((change, index) => <li key={index}>{lang === "en" ? change.en : change.zh}</li>)}</ul> : null}
+                {item.notes.skipped?.length ? (
+                  <div className="pt-1">
+                    <p className="text-xs text-muted-foreground">{t("需要重拍、这次没有采用的建议", "Suggestions that need a reshoot (not applied)")}</p>
+                    <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground/80">{item.notes.skipped.map((skip, index) => <li key={index}>{lang === "en" ? skip.en : skip.zh}</li>)}</ul>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             {item.status === "failed" && item.counts === 0 ? <p className="text-sm text-red-300/80">{t("原片无法下载，这次不计次数。", "The source video could not be downloaded; this attempt is not counted.")}</p>

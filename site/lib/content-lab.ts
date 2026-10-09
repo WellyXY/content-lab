@@ -195,7 +195,7 @@ export type DashboardData = {
 export type Recreation = {
   id: string;
   status: "queued" | "preparing" | "designing" | "rendering" | "complete" | "failed";
-  notes: { summary_zh: string; summary_en: string; changes: Array<{ zh: string; en: string; suggestion: string | null }> } | null;
+  notes: { summary_zh: string; summary_en: string; changes: Array<{ zh: string; en: string; suggestion: string | null }>; skipped?: Array<{ zh: string; en: string; suggestion: string | null }> } | null;
   videoUrl: string | null;
   coverUrl: string | null;
   error: string | null;
