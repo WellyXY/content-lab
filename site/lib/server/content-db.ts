@@ -99,6 +99,9 @@ export function rowToFeature(row: Record<string, unknown> | null): PostFeature |
     summaryZh: nullableString(row.summary_zh),
     formulaZh: nullableString(row.formula_zh),
     keyframes: safeJson<string[]>(row.keyframes_json, []),
+    script: safeJson<PostFeature["script"]>(row.script_json, []),
+    computed: safeJson<PostFeature["computed"]>(row.computed_json, {}),
+    frames: safeJson<PostFeature["frames"]>(row.frames_json, []),
     createdAt: String(row.created_at),
   };
 }
@@ -112,6 +115,10 @@ export function rowToPrediction(row: Record<string, unknown>): Prediction {
     rankTotal: nullableInteger(row.rank_total),
     band: nullableString(row.band),
     rationale: nullableString(row.rationale),
+    assessment: (() => {
+      const inputs = safeJson<Record<string, unknown>>(row.inputs_json, {});
+      return inputs.kind === "playbook_assessment" ? inputs as unknown as Prediction["assessment"] : null;
+    })(),
   };
 }
 

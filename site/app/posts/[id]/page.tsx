@@ -7,6 +7,7 @@ import { Clock3, Film, Flame, MessageCircle, Play, RefreshCw, Share2, Sparkles, 
 import { Line, LineChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
+import { AssessmentCard, ComputedFeaturesCard, ScriptTimeline } from "@/components/content-lab/analysis-panels";
 import { RelativeTime } from "@/components/content-lab/relative-time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -123,16 +124,7 @@ export default function PostDetailPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-white/8 bg-card/80 shadow-none">
-          <CardHeader className="border-b border-white/8 pb-5"><div className="flex items-center justify-between gap-3"><div><CardTitle className="text-lg">相對排名</CardTitle><CardDescription className="mt-1">同市場近 7 天新帖</CardDescription></div><Badge className="border-amber-300/20 bg-amber-300/8 text-amber-200" variant="outline">實驗性</Badge></div></CardHeader>
-          <CardContent className="pt-6">
-            {prediction?.rankPosition && prediction.rankTotal ? <>
-              <div className="flex items-end gap-2"><span className="font-mono text-5xl font-semibold tracking-[-0.06em] text-primary">#{prediction.rankPosition}</span><span className="mb-1.5 font-mono text-sm text-muted-foreground">/ {prediction.rankTotal}</span></div>
-              <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/[0.06]"><div className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-primary" style={{ width: `${Math.max(6, (1 - (prediction.rankPosition - 1) / prediction.rankTotal) * 100)}%` }} /></div>
-              <p className="mt-5 text-sm leading-6 text-muted-foreground">{prediction.rationale ?? "等待 Agent 寫入排名理由。"}</p>
-            </> : <div className="py-10 text-center text-sm text-muted-foreground">等待同市場比較批次</div>}
-          </CardContent>
-        </Card>
+        <AssessmentCard market={post.market} prediction={prediction} />
       </section>
 
       <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)]">
@@ -153,8 +145,16 @@ export default function PostDetailPage() {
         </Card>
       </section>
 
+      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,.55fr)]">
+        <Card className="border-white/8 bg-card/80 shadow-none">
+          <CardHeader className="border-b border-white/8 pb-5"><CardTitle className="text-lg">分段腳本</CardTitle><CardDescription>{post.postType === "photo" ? "按圖集順序逐張拆解" : "按時間拆解畫面、字幕與台詞；台詞由本機 Whisper 轉寫"}</CardDescription></CardHeader>
+          <CardContent className="pt-6"><ScriptTimeline frames={frames} script={data.features?.script ?? []} /></CardContent>
+        </Card>
+        <ComputedFeaturesCard computed={data.features?.computed ?? {}} />
+      </section>
+
       <Card className="mt-4 border-white/8 bg-card/80 shadow-none">
-        <CardHeader className="border-b border-white/8 pb-5"><CardTitle className="text-lg">關鍵幀</CardTitle><CardDescription>本機 ffmpeg 抽幀後供 Codex 分析</CardDescription></CardHeader>
+        <CardHeader className="border-b border-white/8 pb-5"><CardTitle className="text-lg">關鍵幀</CardTitle><CardDescription>{post.postType === "photo" ? "圖集的全部圖片" : "本機 ffmpeg 按畫面切換抽幀"}，交給 Claude 分析</CardDescription></CardHeader>
         <CardContent className="pt-6">
           {frames.length ? <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">{frames.map((frame, index) => <figure className="overflow-hidden rounded-lg border border-white/8 bg-black" key={frame}><img alt={`關鍵幀 ${index + 1}`} className="aspect-[9/16] h-full w-full object-cover" loading="lazy" src={frame} /><figcaption className="sr-only">關鍵幀 {index + 1}</figcaption></figure>)}</div> : <Empty className="border-dashed border-white/8 py-12"><EmptyHeader><EmptyMedia variant="icon"><Film /></EmptyMedia><EmptyTitle>{data.mediaError ?? "尚無關鍵幀"}</EmptyTitle><EmptyDescription>{post.analysisState === "failed" ? "媒體取得或分析失敗，請查看處理佇列並重試。" : "本機取得媒體並抽幀後，圖片會同步顯示在這裡。"}</EmptyDescription></EmptyHeader></Empty>}
         </CardContent>

@@ -13,7 +13,7 @@ import {
 
 const eventSchema = z.object({
   id: z.string().min(1).max(160),
-  type: z.enum(["post", "snapshot", "features", "prediction", "job", "alert"]),
+  type: z.enum(["post", "snapshot", "features", "prediction", "job", "alert", "playbook"]),
   entityKey: z.string().min(1).max(160),
   occurredAt: z.string().datetime({ offset: true }),
   payload: z.record(z.string(), z.unknown()),
@@ -75,6 +75,7 @@ async function applyEvent(db: D1Database, event: SyncEvent) {
     case "prediction": return syncPrediction(db, event);
     case "job": return syncJob(db, event);
     case "alert": return syncAlert(db, event);
+    case "playbook": return syncPlaybook(db, event);
   }
 }
 
@@ -206,17 +207,23 @@ async function syncFeatures(db: D1Database, event: SyncEvent) {
   const analysis = asRecord(pick(payload, "analysis"));
   const keyframes = Array.isArray(pick(payload, "keyframes")) ? pick(payload, "keyframes") : [];
   await db.prepare(`INSERT INTO post_features (
-      post_id, version, model, taxonomy_version, tags_json, hook_text, hook_translation_zh, transcript, summary_zh, formula_zh, keyframes_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      post_id, version, model, taxonomy_version, tags_json, hook_text, hook_translation_zh, transcript, summary_zh, formula_zh, keyframes_json,
+      script_json, computed_json, frames_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(post_id) DO UPDATE SET version = excluded.version, model = excluded.model, taxonomy_version = excluded.taxonomy_version,
       tags_json = excluded.tags_json, hook_text = excluded.hook_text, hook_translation_zh = excluded.hook_translation_zh,
       transcript = excluded.transcript, summary_zh = excluded.summary_zh, formula_zh = excluded.formula_zh,
-      keyframes_json = excluded.keyframes_json, created_at = excluded.created_at`).bind(
+      keyframes_json = excluded.keyframes_json, script_json = excluded.script_json, computed_json = excluded.computed_json,
+      frames_json = excluded.frames_json, created_at = excluded.created_at`).bind(
       postId, nullableString(pick(payload, "version")) ?? event.id, nullableString(pick(payload, "model")),
       nullableString(pick(payload, "taxonomyVersion", "taxonomy_version")) ?? "v3", JSON.stringify(tags),
       nullableString(pick(payload, "hookText", "hook_text")), nullableString(pick(payload, "hookTranslationZh", "hook_translation_zh")) ?? nullableString(pick(analysis, "hook_translation_zh")),
       nullableString(pick(payload, "transcript")), nullableString(pick(payload, "summaryZh", "summary_zh")),
-      nullableString(pick(payload, "formulaZh", "formula_zh")) ?? nullableString(pick(analysis, "formula_zh")), JSON.stringify(keyframes), event.occurredAt,
+      nullableString(pick(payload, "formulaZh", "formula_zh")) ?? nullableString(pick(analysis, "formula_zh")), JSON.stringify(keyframes),
+      JSON.stringify(Array.isArray(pick(payload, "script")) ? pick(payload, "script") : []),
+      JSON.stringify(asRecord(pick(payload, "computed"))),
+      JSON.stringify(Array.isArray(pick(payload, "frames")) ? pick(payload, "frames") : []),
+      event.occurredAt,
     ).run();
   await db.prepare("UPDATE posts SET analysis_state = 'complete', updated_at = ? WHERE id = ?").bind(new Date().toISOString(), postId).run();
 }
@@ -238,6 +245,21 @@ async function syncJob(db: D1Database, event: SyncEvent) {
   const status = nullableString(pick(payload, "status")) ?? "complete";
   await db.prepare("UPDATE jobs SET status = ?, last_error = ?, lease_owner = NULL, locked_until = NULL, updated_at = ? WHERE id = ?")
     .bind(status, nullableString(pick(payload, "lastError", "last_error")), new Date().toISOString(), event.entityKey).run();
+}
+
+async function syncPlaybook(db: D1Database, event: SyncEvent) {
+  const payload = event.payload;
+  const market = nullableString(pick(payload, "market"));
+  const version = nullableInteger(pick(payload, "version"));
+  const markdown = nullableString(pick(payload, "markdown"));
+  if (!market || version === null || !markdown) throw new Error("playbook needs market, version and markdown");
+  await db.prepare(`INSERT INTO playbooks (id, market, version, week_start, created_at, model, document_json, evidence_json, markdown)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET document_json = excluded.document_json, evidence_json = excluded.evidence_json, markdown = excluded.markdown`).bind(
+      nullableString(pick(payload, "id")) ?? event.entityKey, market.toUpperCase(), version,
+      nullableString(pick(payload, "weekStart", "week_start")) ?? event.occurredAt, nullableString(pick(payload, "createdAt", "created_at")) ?? event.occurredAt,
+      nullableString(pick(payload, "model")), JSON.stringify(asRecord(pick(payload, "document"))), JSON.stringify(asRecord(pick(payload, "evidence"))), markdown,
+    ).run();
 }
 
 async function syncAlert(db: D1Database, event: SyncEvent) {

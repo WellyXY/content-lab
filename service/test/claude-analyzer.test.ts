@@ -114,10 +114,15 @@ describe("analysis quality inputs", () => {
 
   it("keeps real speech and drops Whisper text invented over music", () => {
     expect(acceptTranscript({ text: " Đi từ Yên Bái xuống Hà Nội để gặp em ", language: "vi", segments: [{ no_speech_prob: 0.07 }] }, "small"))
-      .toEqual({ text: "Đi từ Yên Bái xuống Hà Nội để gặp em", language: "vi", model: "small" });
+      .toEqual({ text: "Đi từ Yên Bái xuống Hà Nội để gặp em", language: "vi", model: "small", segments: [] });
+    expect(acceptTranscript({ text: "Xin chào các bạn hôm nay", language: "vi", segments: [{ start: 0.04, end: 2.31, text: " Xin chào các bạn ", no_speech_prob: 0.05 }] }, "small")?.segments)
+      .toEqual([{ startS: 0, endS: 2.3, text: "Xin chào các bạn" }]);
     expect(acceptTranscript({ text: "Thank you for watching", language: "en", segments: [{ no_speech_prob: 0.92 }] }, "small")).toBeNull();
     expect(acceptTranscript({ text: "la la la la la la la la la la", language: "vi", segments: [{ no_speech_prob: 0.1 }] }, "small")).toBeNull();
     expect(acceptTranscript({ text: "", segments: [] }, "small")).toBeNull();
+    expect(acceptTranscript({ text: " Thank you for watching! ", language: "en", segments: [{ no_speech_prob: 0.3 }] }, "small")).toBeNull();
+    expect(acceptTranscript({ text: "you know what I mean", language: "en", segments: [{ no_speech_prob: 0.2 }] }, "small", ["tr"])).toBeNull();
+    expect(acceptTranscript({ text: "popup'ta herkes var", language: "tr", segments: [{ no_speech_prob: 0.2 }] }, "small", ["tr"])?.text).toBe("popup'ta herkes var");
   });
 
   it("reads confirmed and unconfirmed brand names from the owner glossary", () => {

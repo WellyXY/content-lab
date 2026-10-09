@@ -22,6 +22,13 @@
       "when": 1791496729721,
       "tag": "0002_pink_tattoo",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1791502208992,
+      "tag": "0003_mighty_masque",
+      "breakpoints": true
     }
   ]
 }

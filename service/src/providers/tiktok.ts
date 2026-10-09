@@ -130,6 +130,7 @@ export class TikTokProvider implements MetricsProvider {
             videoId, url: canonicalUrl, authorId: text(author.id), authorHandle: handle ?? text(author.nickname) ?? "unknown",
             caption: text(data.title) ?? "", type: isPhoto ? "photo" : "video", durationS: number(data.duration),
             musicTitle: text(music.title), coverUrl: mediaUrl(data.cover), mediaUrl: isPhoto ? mediaUrl(images[0]) : mediaUrl(data.hdplay) ?? mediaUrl(data.play) ?? mediaUrl(data.wmplay),
+            imageUrls: images.map(mediaUrl).filter((value): value is string => value !== null).slice(0, 35),
             publishedAt: createTime === null ? null : new Date(createTime * 1_000).toISOString(),
           },
           metrics: { views: metrics.views, likes: metrics.likes, comments: metrics.comments, shares: metrics.shares, saves: metrics.saves },
@@ -160,7 +161,7 @@ export class TikTokProvider implements MetricsProvider {
     const metadata: PostMetadata = {
       videoId, url: normalizeTikTokUrl(url), authorId: null, authorHandle: text(data.author_unique_id) ?? text(data.author_name) ?? "unknown",
       caption: text(data.title) ?? "", type: "video", durationS: null, musicTitle: null,
-      coverUrl: text(data.thumbnail_url), mediaUrl: null, publishedAt: null,
+      coverUrl: text(data.thumbnail_url), mediaUrl: null, imageUrls: [], publishedAt: null,
     };
     return { source: "tiktok_oembed", metadata, metrics: null };
   }

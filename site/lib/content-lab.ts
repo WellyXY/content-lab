@@ -64,7 +64,69 @@ export type PostFeature = {
   summaryZh: string | null;
   formulaZh: string | null;
   keyframes: string[];
+  script: ScriptSegment[];
+  computed: ComputedFeatures;
+  frames: Array<{ frame: number; timeS: number | null; imageIndex: number | null }>;
   createdAt: string;
+};
+
+export type ScriptSegment = {
+  position: string;
+  start_s: number;
+  end_s: number;
+  role: "hook" | "setup" | "development" | "turn" | "payoff" | "cta" | "other";
+  frames: number[];
+  visual_zh: string;
+  on_screen_text: string;
+  on_screen_text_zh: string;
+  spoken: string;
+  spoken_zh: string;
+};
+
+/** Program-computed facts; every field may be missing on analyses made before they existed. */
+export type ComputedFeatures = Partial<{
+  format_type: "video" | "photo"; duration_s: number | null; duration_band: string | null; scene_cuts: number | null;
+  cuts_per_10s: number | null; pacing_band: "slow" | "medium" | "fast" | null; image_count: number | null;
+  has_speech: boolean; speech_words: number; speech_words_per_min: number | null; first_speech_s: number | null;
+  speech_coverage: number | null; music_type: "original" | "library" | "unknown"; on_screen_text_chars: number;
+  on_screen_text_per_frame: number | null; caption_chars: number; hashtag_count: number; brand_in_caption: boolean;
+  publish_hour_local: number | null; publish_weekday_local: number | null;
+}>;
+
+export type PlaybookAssessment = {
+  kind: "playbook_assessment";
+  playbook: { id: string; market: string; version: number; weekStart: string } | null;
+  inSample?: string | null;
+  potential?: "high" | "medium" | "low";
+  potential_reason_zh?: string;
+  matched_patterns?: Array<{ pattern_id: string; evidence_zh: string }>;
+  anti_patterns_hit?: Array<{ pattern_id: string; evidence_zh: string }>;
+  missing_patterns?: Array<{ pattern_id: string; gap_zh: string }>;
+  suggestions?: Array<{ priority: 1 | 2 | 3; change_zh: string; reason_zh: string; pattern_ids: string[] }>;
+  similar_post_ids?: string[];
+};
+
+export type PlaybookPattern = { id: string; title_zh: string; description_zh: string; why_it_works_zh?: string; how_to_apply_zh?: string; stat_keys: string[]; example_post_ids: string[] };
+
+export type PlaybookSummary = { id: string; market: string; version: number; weekStart: string; createdAt: string };
+
+export type PlaybookData = PlaybookSummary & {
+  model: string | null;
+  markdown: string;
+  document: {
+    summary_zh: string;
+    patterns: PlaybookPattern[];
+    anti_patterns: PlaybookPattern[];
+    weekly_changes: Array<{ type: string; pattern_id: string; change_zh: string }>;
+    open_questions_zh: string[];
+    sample_caveat_zh: string;
+  };
+  evidence: {
+    eligiblePosts: number; topSize: number; bottomSize: number; topMinViews: number; medianViews: number;
+    stats: Array<{ key: string; label: string; posts: number; topPosts: number; bottomPosts: number; topShare: number; bottomShare: number; lift: number; medianViews: number }>;
+    numeric: Array<{ key: string; label: string; topMedian: number | null; bottomMedian: number | null }>;
+    posts: Array<{ id: string; views: number; tier: string; summaryZh: string; formulaZh: string }>;
+  };
 };
 
 export type Prediction = {
@@ -75,6 +137,7 @@ export type Prediction = {
   rankTotal: number | null;
   band: string | null;
   rationale: string | null;
+  assessment: PlaybookAssessment | null;
 };
 
 export type AlertItem = {

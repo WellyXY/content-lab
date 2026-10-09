@@ -94,6 +94,16 @@ const MIGRATIONS = [
   ALTER TABLE posts ADD COLUMN site_post_id TEXT;
   CREATE UNIQUE INDEX posts_site_post_id ON posts(site_post_id) WHERE site_post_id IS NOT NULL;
   `,
+  `
+  ALTER TABLE posts ADD COLUMN image_urls_json TEXT;
+
+  CREATE TABLE playbooks (
+    id TEXT PRIMARY KEY, market TEXT NOT NULL, version INTEGER NOT NULL,
+    week_start TEXT NOT NULL, created_at TEXT NOT NULL, model TEXT NOT NULL,
+    evidence_json TEXT NOT NULL, document_json TEXT NOT NULL,
+    UNIQUE(market, version)
+  ) STRICT;
+  `,
 ] as const;
 
 export function migrate(db: DatabaseSync): void {

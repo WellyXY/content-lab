@@ -72,8 +72,27 @@ export const postFeatures = sqliteTable("post_features", {
   summaryZh: text("summary_zh"),
   formulaZh: text("formula_zh"),
   keyframesJson: text("keyframes_json").notNull().default("[]"),
+  scriptJson: text("script_json").notNull().default("[]"),
+  computedJson: text("computed_json").notNull().default("{}"),
+  framesJson: text("frames_json").notNull().default("[]"),
   createdAt: text("created_at").notNull(),
 });
+
+export const playbooks = sqliteTable(
+  "playbooks",
+  {
+    id: text("id").primaryKey(),
+    market: text("market").notNull(),
+    version: integer("version").notNull(),
+    weekStart: text("week_start").notNull(),
+    createdAt: text("created_at").notNull(),
+    model: text("model"),
+    documentJson: text("document_json").notNull(),
+    evidenceJson: text("evidence_json").notNull(),
+    markdown: text("markdown").notNull(),
+  },
+  (table) => [uniqueIndex("idx_playbooks_market_version").on(table.market, table.version)],
+);
 
 export const predictions = sqliteTable(
   "predictions",

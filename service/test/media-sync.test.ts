@@ -59,23 +59,25 @@ process.stdin.on("end", () => {
   fs.writeFileSync(args[args.indexOf("--output-last-message") + 1], JSON.stringify({
     tags: { format: { value: "photo", confidence: "high", evidence: [1] } },
     frame_texts: [], hook_text: "", hook_translation_zh: "", transcript: "", summary_zh: "測試圖片",
-    script_segments: [], formula_zh: "", taxonomy_gaps: []
+    script_segments: [{ position: "圖 1", start_s: 1, end_s: 1, role: "hook", frames: [1], visual_zh: "測試圖片", on_screen_text: "", on_screen_text_zh: "", spoken: "", spoken_zh: "" }],
+    formula_zh: "", taxonomy_gaps: []
   }));
 });
 `, { mode: 0o755 });
     vi.stubEnv("PATH", `${dir}:${process.env.PATH ?? ""}`);
     const mediaDir = join(dir, "media");
     mkdirSync(join(mediaDir, "p1"), { recursive: true });
-    writeFileSync(join(mediaDir, "p1", "frame-01.png"), png);
+    writeFileSync(join(mediaDir, "p1", "img-01.png"), png);
+    writeFileSync(join(mediaDir, "p1", "frames-v2.json"), JSON.stringify({ frames: [{ file: "img-01.png", timeS: null, imageIndex: 1 }], facts: { durationS: null, width: null, height: null, sceneCuts: null, imageCount: 1 } }));
     const taxonomyPath = join(dir, "taxonomy.json");
     writeFileSync(taxonomyPath, JSON.stringify({ version: "test", dimensions: { format: { label: "Format", multi: false, values: { photo: "Photo" } } } }));
     const db = openDatabase(join(dir, "test.sqlite"));
     try {
-      db.prepare("INSERT INTO posts(id,video_id,url,bound_at,created_at,updated_at) VALUES ('p1','7412345678901234567','https://www.tiktok.com/@a/photo/7412345678901234567',?,?,?)")
+      db.prepare("INSERT INTO posts(id,video_id,url,type,bound_at,created_at,updated_at) VALUES ('p1','7412345678901234567','https://www.tiktok.com/@a/photo/7412345678901234567','photo',?,?,?)")
         .run("2026-10-08T00:00:00.000Z", "2026-10-08T00:00:00.000Z", "2026-10-08T00:00:00.000Z");
       await analyzePost(db, { ...loadConfig(), analyzerProvider: "codex", mediaDir, taxonomyPath, siteSyncUrl: null, siteSyncToken: null }, "p1");
       expect(db.prepare("SELECT features_state FROM posts WHERE id='p1'").get()).toMatchObject({ features_state: "ready" });
-      expect(db.prepare("SELECT summary_zh, keyframes_json FROM post_features WHERE post_id='p1'").get()).toMatchObject({ summary_zh: "測試圖片", keyframes_json: '["/media/p1/frame-01.png"]' });
+      expect(db.prepare("SELECT summary_zh, keyframes_json FROM post_features WHERE post_id='p1'").get()).toMatchObject({ summary_zh: "測試圖片", keyframes_json: '["/media/p1/img-01.png"]' });
     } finally {
       db.close();
     }
@@ -135,7 +137,7 @@ process.stdin.on("end", () => {
     try {
       db.prepare("INSERT INTO posts(id,video_id,url,bound_at,created_at,updated_at) VALUES ('p1','7412345678901234567','https://www.tiktok.com/@a/video/7412345678901234567',?,?,?)")
         .run("2026-10-08T00:00:00.000Z", "2026-10-08T00:00:00.000Z", "2026-10-08T00:00:00.000Z");
-      await expect(analyzePost(db, { ...loadConfig(), mediaDir: join(dir, "media") }, "p1")).rejects.toThrow(/requires actual keyframes/);
+      await expect(analyzePost(db, { ...loadConfig(), mediaDir: join(dir, "media") }, "p1")).rejects.toThrow(/no downloadable media/);
       expect((db.prepare("SELECT COUNT(*) AS count FROM post_features").get() as { count: number }).count).toBe(0);
     } finally {
       db.close();

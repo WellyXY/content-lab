@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { ContentLabDatabase } from "./db/database.js";
 import { evaluateAlerts } from "./domain/alerts.js";
+import { MARKET_UTC_OFFSET_HOURS } from "./domain/features.js";
 import { deriveHourlyRows, hourBucket, type MetricPoint } from "./domain/hourly.js";
 import { nextCaptureAt } from "./domain/schedule.js";
 import { enqueueJob } from "./jobs/queue.js";
@@ -13,9 +14,6 @@ interface PostRow {
   id: string; site_post_id: string | null; video_id: string; url: string; market: string | null; project_tag: string | null;
   published_at: string | null; bound_at: string; tracking_state: string; next_capture_at: string | null;
 }
-
-/** Day boundaries for acceleration alerts follow each market's local time. GCC uses Riyadh time. */
-const MARKET_UTC_OFFSET_HOURS: Record<string, number> = { ID: 7, VN: 7, TR: 3, GCC: 3, TH: 7 };
 
 export const postReadModel = (db: ContentLabDatabase, id: string): Record<string, unknown> => {
   const row = db.prepare(`
@@ -62,20 +60,24 @@ export function upsertPost(
   db.prepare(`
     INSERT INTO posts(
       id, site_post_id, video_id, url, creator_id, market, project_tag, type, duration_s, caption, music_title,
-      cover_url, media_url, published_at, bound_at, bound_by, next_capture_at, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      cover_url, media_url, image_urls_json, published_at, bound_at, bound_by, next_capture_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(video_id) DO UPDATE SET
       site_post_id=COALESCE(posts.site_post_id, excluded.site_post_id),
       url=excluded.url, creator_id=excluded.creator_id, market=COALESCE(posts.market, excluded.market),
       project_tag=COALESCE(posts.project_tag, excluded.project_tag), type=excluded.type,
       duration_s=COALESCE(excluded.duration_s, posts.duration_s), caption=excluded.caption,
       music_title=COALESCE(excluded.music_title, posts.music_title), cover_url=COALESCE(excluded.cover_url, posts.cover_url),
-      media_url=COALESCE(excluded.media_url, posts.media_url), published_at=COALESCE(excluded.published_at, posts.published_at),
+      media_url=COALESCE(excluded.media_url, posts.media_url),
+      image_urls_json=CASE WHEN excluded.image_urls_json IS NULL THEN posts.image_urls_json ELSE excluded.image_urls_json END,
+      published_at=COALESCE(excluded.published_at, posts.published_at),
       updated_at=excluded.updated_at
   `).run(
     id, binding.sitePostId ?? null, result.metadata.videoId, result.metadata.url, creatorId, binding.market, binding.projectTag,
     result.metadata.type, result.metadata.durationS, result.metadata.caption, result.metadata.musicTitle,
-    result.metadata.coverUrl, result.metadata.mediaUrl, result.metadata.publishedAt, now, binding.boundBy,
+    result.metadata.coverUrl, result.metadata.mediaUrl,
+    result.metadata.imageUrls?.length ? JSON.stringify(result.metadata.imageUrls) : null,
+    result.metadata.publishedAt, now, binding.boundBy,
     now, now, now,
   );
   const row = db.prepare("SELECT * FROM posts WHERE video_id=?").get(result.metadata.videoId) as unknown as PostRow;
@@ -294,6 +296,21 @@ export async function capturePost(
       throw dbError;
     }
     if (!terminal) throw error;
+  }
+}
+
+/** Refresh post metadata (e.g. expiring carousel image URLs) without recording a metric snapshot. */
+export async function refreshPostMetadata(db: ContentLabDatabase, provider: MetricsProvider, postId: string, now = new Date().toISOString()): Promise<void> {
+  const post = db.prepare("SELECT * FROM posts WHERE id=?").get(postId) as unknown as PostRow | undefined;
+  if (!post) throw new Error(`Unknown post ${postId}`);
+  const result = await provider.fetchPost(post.url);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    upsertPost(db, result, { market: post.market, projectTag: post.project_tag, boundBy: null, sitePostId: post.site_post_id }, now);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
   }
 }
 

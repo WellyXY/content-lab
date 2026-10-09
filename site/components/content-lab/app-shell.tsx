@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Link2, ListVideo, Plus, Radio } from "lucide-react";
+import { LayoutDashboard, Link2, ListVideo, Plus, Radio, BookOpenText } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 const links = [
   { href: "/", label: "總覽", icon: LayoutDashboard },
   { href: "/posts", label: "帖子", icon: ListVideo },
+  { href: "/playbook", label: "爆款文檔", icon: BookOpenText },
   { href: "/bind", label: "綁定", icon: Link2 },
 ];
 
@@ -69,7 +70,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main className="min-w-0 px-4 pb-24 pt-7 sm:px-6 lg:px-8 lg:pb-10 lg:pt-9">{children}</main>
       </div>
 
-      <nav aria-label="行動版導覽" className="fixed inset-x-3 bottom-3 z-50 grid grid-cols-3 rounded-2xl border border-white/10 bg-[#10151e]/95 p-1.5 shadow-2xl backdrop-blur-xl lg:hidden">
+      <nav aria-label="行動版導覽" className="fixed inset-x-3 bottom-3 z-50 grid grid-cols-4 rounded-2xl border border-white/10 bg-[#10151e]/95 p-1.5 shadow-2xl backdrop-blur-xl lg:hidden">
         {links.map((link) => {
           const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
           const Icon = link.icon;

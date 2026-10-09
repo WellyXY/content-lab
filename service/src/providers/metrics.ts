@@ -9,6 +9,8 @@ export interface PostMetadata {
   musicTitle: string | null;
   coverUrl: string | null;
   mediaUrl: string | null;
+  /** Every image of a photo carousel, in order; empty for videos. */
+  imageUrls: string[];
   publishedAt: string | null;
 }
 

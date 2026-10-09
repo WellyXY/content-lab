@@ -22,11 +22,30 @@ export interface AnalysisOutput {
   frame_texts: Array<{ frame: number; text: string }>;
   hook_text: string;
   hook_translation_zh: string;
-  transcript: string;
+  /** Legacy model field; the stored transcript always comes from Whisper. */
+  transcript?: string;
   summary_zh: string;
-  script_segments: Array<{ segment: string; summary_zh: string }>;
+  script_segments: ScriptSegment[];
   formula_zh: string;
   taxonomy_gaps: string[];
+}
+
+export const SCRIPT_ROLES = ["hook", "setup", "development", "turn", "payoff", "cta", "other"] as const;
+
+/** One beat of the timed script: what is seen, written and said in that span. */
+export interface ScriptSegment {
+  /** Display label such as "0–3.2s" or "圖 2". */
+  position: string;
+  /** Seconds for videos; the 1-based image number for carousels. */
+  start_s: number;
+  end_s: number;
+  role: (typeof SCRIPT_ROLES)[number];
+  frames: number[];
+  visual_zh: string;
+  on_screen_text: string;
+  on_screen_text_zh: string;
+  spoken: string;
+  spoken_zh: string;
 }
 
 export interface RankingOutput {
@@ -61,8 +80,13 @@ export function analysisJsonSchema(taxonomy: Taxonomy): Record<string, unknown> 
   return closedObject({
     tags: closedObject(dimensions),
     frame_texts: { type: "array", items: closedObject({ frame: { type: "integer" }, text: { type: "string" } }) },
-    hook_text: { type: "string" }, hook_translation_zh: { type: "string" }, transcript: { type: "string" }, summary_zh: { type: "string" },
-    script_segments: { type: "array", items: closedObject({ segment: { type: "string" }, summary_zh: { type: "string" } }) },
+    hook_text: { type: "string" }, hook_translation_zh: { type: "string" }, summary_zh: { type: "string" },
+    script_segments: { type: "array", items: closedObject({
+      position: { type: "string" }, start_s: { type: "number" }, end_s: { type: "number" },
+      role: { type: "string", enum: [...SCRIPT_ROLES] }, frames: { type: "array", items: { type: "integer" } },
+      visual_zh: { type: "string" }, on_screen_text: { type: "string" }, on_screen_text_zh: { type: "string" },
+      spoken: { type: "string" }, spoken_zh: { type: "string" },
+    }) },
     formula_zh: { type: "string" }, taxonomy_gaps: { type: "array", items: { type: "string" } },
   });
 }
@@ -86,10 +110,19 @@ export function validateAnalysis(value: unknown, taxonomy: Taxonomy): AnalysisOu
     if (values.length === 0 || values.some((item) => !Object.hasOwn(definition.values, item))) throw new Error(`Out-of-taxonomy value for ${dimension}`);
     if (!Array.isArray(decision.evidence) || decision.evidence.some((item) => !Number.isInteger(item) || item < 1)) throw new Error(`Invalid evidence for ${dimension}`);
   }
-  for (const field of ["hook_text", "hook_translation_zh", "transcript", "summary_zh", "formula_zh"] as const) {
+  for (const field of ["hook_text", "hook_translation_zh", "summary_zh", "formula_zh"] as const) {
     if (typeof output[field] !== "string") throw new Error(`Codex output is missing ${field}`);
   }
   if (!Array.isArray(output.frame_texts) || !Array.isArray(output.script_segments) || !Array.isArray(output.taxonomy_gaps)) throw new Error("Codex output has invalid list fields");
+  let previousStart = -Infinity;
+  for (const segment of output.script_segments) {
+    const text = ["position", "visual_zh", "on_screen_text", "on_screen_text_zh", "spoken", "spoken_zh"] as const;
+    if (!segment || text.some((field) => typeof segment[field] !== "string")) throw new Error("Script segment is missing text fields");
+    if (!Number.isFinite(segment.start_s) || !Number.isFinite(segment.end_s) || segment.end_s < segment.start_s) throw new Error("Script segment has an invalid time span");
+    if (segment.start_s < previousStart) throw new Error("Script segments are out of order");
+    if (!SCRIPT_ROLES.includes(segment.role) || !Array.isArray(segment.frames)) throw new Error("Script segment has an invalid role or frame list");
+    previousStart = segment.start_s;
+  }
   return output as AnalysisOutput;
 }
 

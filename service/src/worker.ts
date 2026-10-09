@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 
 import { AnalyzerQuotaError } from "./analyzer/claude.js";
 import { CodexAuthError, analyzePost } from "./analyzer/codex.js";
-import { capturePost, ingestPost, recordCodexAuthAlert, syncPostReadModel } from "./collector.js";
+import { assessPost, generatePlaybook, marketWeekStart, marketsDueForPlaybook, postsAwaitingAssessment } from "./analyzer/playbook.js";
+import { capturePost, ingestPost, recordCodexAuthAlert, refreshPostMetadata, syncPostReadModel } from "./collector.js";
 import { loadConfig } from "./config.js";
 import { openDatabase, type ContentLabDatabase } from "./db/database.js";
 import { normalizeTikTokUrl } from "./domain/tiktok-url.js";
@@ -69,7 +70,26 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
   if (job.kind === "analyze") {
     const payload = job.payload as { postId?: string; version?: number };
     if (!payload.postId) throw new Error("Analyze job is missing postId");
+    const post = database.prepare("SELECT type FROM posts WHERE id=?").get(payload.postId) as { type: string | null } | undefined;
+    // Carousel image URLs are signed and expire; refresh them before downloading every image.
+    if (post?.type === "photo") await refreshPostMetadata(database, provider, payload.postId);
     await analyzePost(database, config, payload.postId, payload.version ?? 1);
+    return;
+  }
+  if (job.kind === "playbook") {
+    const { market } = job.payload as { market?: string };
+    if (!market) throw new Error("Playbook job is missing market");
+    const playbook = await generatePlaybook(database, config, market);
+    for (const target of postsAwaitingAssessment(database, market)) {
+      enqueueJob(database, { kind: "assess", payload: { postId: target.postId, version: target.version }, idempotencyKey: `assess:${target.postId}:v${target.version}:pb${playbook.version}` });
+    }
+    log("playbook_generated", { market, version: playbook.version, patterns: playbook.document.patterns.length });
+    return;
+  }
+  if (job.kind === "assess") {
+    const payload = job.payload as { postId?: string; version?: number };
+    if (!payload.postId || !payload.version) throw new Error("Assess job is missing postId or version");
+    await assessPost(database, config, payload.postId, payload.version);
     return;
   }
   if (job.kind === "remote_bind") {
@@ -105,6 +125,8 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
 }
 
 const QUOTA_PAUSE_MS = 30 * 60_000;
+/** Jobs that call the model share the analysis pool and its quota pause. */
+const MODEL_JOB_KINDS = ["analyze", "assess", "playbook"];
 const ANALYSIS_LEASE_MS = 20 * 60_000;
 const inflightAnalyses = new Set<Promise<void>>();
 let analysisPausedUntil = 0;
@@ -147,7 +169,7 @@ async function handleJob(job: Job): Promise<void> {
 function startAnalyses(): void {
   if (Date.now() < analysisPausedUntil) return;
   while (inflightAnalyses.size < config.analyzerConcurrency) {
-    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, kinds: ["analyze"] })[0];
+    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, kinds: MODEL_JOB_KINDS })[0];
     if (!job) return;
     const task: Promise<void> = handleJob(job).finally(() => { inflightAnalyses.delete(task); });
     inflightAnalyses.add(task);
@@ -160,10 +182,14 @@ export async function runWorkerCycle(): Promise<void> {
     catch (error) { log("site_pull_failed", { error: error instanceof Error ? error.message : String(error) }); }
   }
   log("scheduler_cycle", { ...runSchedulerCycle(db) });
+  const now = new Date().toISOString();
+  for (const market of marketsDueForPlaybook(db, now)) {
+    enqueueJob(db, { kind: "playbook", payload: { market }, idempotencyKey: `playbook:${market}:${marketWeekStart(market, now)}` });
+  }
   await pushPendingEvents();
   startAnalyses();
   for (let processed = 0; processed < 20; processed += 1) {
-    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, excludeKinds: ["analyze"] })[0];
+    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, excludeKinds: MODEL_JOB_KINDS })[0];
     if (!job) break;
     await handleJob(job);
     // An ingest enqueues its analysis; start it right away.
@@ -195,7 +221,7 @@ async function main(): Promise<void> {
       if (once) await Promise.allSettled([...inflightAnalyses]);
       if (once || stopping) break;
       // Analyses are refilled between cycles, so only other due work shortens the wait.
-      const due = db.prepare("SELECT 1 FROM jobs WHERE kind != 'analyze' AND status IN ('queued','failed') AND run_at<=? AND attempts<max_attempts LIMIT 1")
+      const due = db.prepare("SELECT 1 FROM jobs WHERE kind NOT IN ('analyze','assess','playbook') AND status IN ('queued','failed') AND run_at<=? AND attempts<max_attempts LIMIT 1")
         .get(new Date().toISOString());
       const until = Date.now() + (due ? 1_000 : Math.max(1_000, 30_000 - (Date.now() - started)));
       while (!stopping && Date.now() < until) {

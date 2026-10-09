@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { ContentLabDatabase } from "../db/database.js";
 
-export type SyncEventType = "post" | "snapshot" | "features" | "prediction" | "job" | "alert";
+export type SyncEventType = "post" | "snapshot" | "features" | "prediction" | "job" | "alert" | "playbook";
 
 export function putSyncEvent(
   db: ContentLabDatabase,

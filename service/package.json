@@ -17,7 +17,9 @@
     "feishu:doctor": "tsx src/feishu-doctor.ts",
     "feishu:configure": "tsx src/feishu-configure.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "playbook": "tsx src/playbook-cli.ts",
+    "resync": "tsx src/resync.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",
