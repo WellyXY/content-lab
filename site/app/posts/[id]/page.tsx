@@ -8,6 +8,7 @@ import { Line, LineChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
 import { AssessmentCard, CheckpointsCard, ComputedFeaturesCard, ScriptTimeline } from "@/components/content-lab/analysis-panels";
+import { RecreateButton, RecreatePanel } from "@/components/content-lab/recreate-panel";
 import { RelativeTime } from "@/components/content-lab/relative-time";
 import { useLocale } from "@/lib/i18n";
 import { Badge } from "@/components/ui/badge";
@@ -102,9 +103,10 @@ export default function PostDetailPage() {
             <span className="flex items-center gap-1.5"><RefreshCw aria-hidden="true" className="size-3.5" /><span>{t("数据更新：", "Data updated: ")}<RelativeTime value={post.lastCapturedAt} /></span></span>
           </div>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
           <Button asChild variant="outline"><a href={post.url} rel="noreferrer" target="_blank"><Play />{t("在 TikTok 查看", "Open on TikTok")}</a></Button>
           <Button disabled={retrying} onClick={retryAnalysis} variant="outline"><RefreshCw className={retrying ? "animate-spin" : ""} />{t("重试分析", "Re-analyze")}</Button>
+          <RecreateButton onStarted={(recreation) => setData((current) => current ? { ...current, recreations: [recreation, ...(current.recreations ?? [])] } : current)} post={post} recreations={data.recreations ?? []} />
         </div>
       </div>
 
@@ -149,6 +151,7 @@ export default function PostDetailPage() {
       <div className="mt-4"><CheckpointsCard checkpoints={post.checkpoints ?? []} /></div>
 
       <div className="mt-4"><AssessmentCard market={post.market} prediction={prediction} /></div>
+      {data.recreations?.length ? <div className="mt-4"><RecreatePanel recreations={data.recreations} /></div> : null}
 
       <section className="mt-4 grid items-start gap-4 xl:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)]">
         <Card className="border-white/8 bg-card/80 shadow-none">
