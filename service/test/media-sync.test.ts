@@ -58,9 +58,9 @@ process.stdin.on("end", () => {
   clearTimeout(watchdog);
   fs.writeFileSync(args[args.indexOf("--output-last-message") + 1], JSON.stringify({
     tags: { format: { value: "photo", confidence: "high", evidence: [1] } },
-    frame_texts: [], hook_text: "", hook_translation_zh: "", transcript: "", summary_zh: "測試圖片",
-    script_segments: [{ position: "圖 1", start_s: 1, end_s: 1, role: "hook", frames: [1], visual_zh: "測試圖片", on_screen_text: "", on_screen_text_zh: "", spoken: "", spoken_zh: "" }],
-    formula_zh: "", taxonomy_gaps: []
+    frame_texts: [], hook_text: "", hook_translation_zh: "", hook_translation_en: "", transcript: "", summary_zh: "測試圖片", summary_en: "test image",
+    script_segments: [{ position: "圖 1", start_s: 1, end_s: 1, role: "hook", frames: [1], visual_zh: "測試圖片", visual_en: "test image", on_screen_text: "", on_screen_text_zh: "", on_screen_text_en: "", spoken: "", spoken_zh: "", spoken_en: "" }],
+    formula_zh: "", formula_en: "", taxonomy_gaps: []
   }));
 });
 `, { mode: 0o755 });

@@ -11,7 +11,7 @@ const summary = (row: Record<string, unknown>): PlaybookSummary => ({
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const market = url.searchParams.get("market")?.trim().toUpperCase() ?? "TR";
-  if (!(MARKET_CODES as readonly string[]).includes(market)) return jsonError("市場不正確", 400);
+  if (!(MARKET_CODES as readonly string[]).includes(market)) return jsonError("市场不正确 · Invalid market", 400);
   const version = nullableInteger(url.searchParams.get("version"));
   try {
     const db = getD1();
@@ -33,6 +33,6 @@ export async function GET(request: Request) {
     }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     console.error("playbook read failed", error);
-    return jsonError("暫時無法讀取爆款共性文檔", 503);
+    return jsonError("暂时无法读取爆款共性文档 · Could not load the playbook", 503);
   }
 }

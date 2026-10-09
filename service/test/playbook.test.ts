@@ -81,30 +81,31 @@ describe("playbook evidence", () => {
     expect(evidence).toMatchObject({ eligiblePosts: 12, topSize: 3, bottomSize: 6 });
     const contrast = evidence.stats.find((row) => row.key === "tag:hook_type=contrast")!;
     expect(contrast).toMatchObject({ topPosts: 3, bottomPosts: 0, lift: 1 });
-    expect(renderStat(contrast, evidence)).toContain("高播放組 3/3");
+    expect(renderStat(contrast, evidence)).toContain("高播放组 3/3");
+    expect(renderStat(contrast, evidence, "en")).toContain("top tier 3/3");
 
     const document: PlaybookDocument = {
-      summary_zh: "對比開場最有效。",
+      summary_zh: "对比开场最有效。", summary_en: "Contrast openings work best.",
       patterns: [
-        { id: "P1", title_zh: "對比開場", description_zh: "第一秒就給出對比。", why_it_works_zh: "製造落差。", how_to_apply_zh: "先放別人的版本。", stat_keys: ["tag:hook_type=contrast"], example_post_ids: ["p0"] },
-        { id: "P2", title_zh: "快節奏", description_zh: "剪輯緊湊。", why_it_works_zh: "留住注意力。", how_to_apply_zh: "每兩秒換畫面。", stat_keys: ["feat:pacing_band=fast"], example_post_ids: ["p1"] },
+        { id: "P1", title_zh: "对比开场", title_en: "Contrast opening", description_zh: "第一秒就给出对比。", description_en: "Show the contrast in the first second.", why_it_works_zh: "制造落差。", why_it_works_en: "It creates a gap.", how_to_apply_zh: "先放别人的版本。", how_to_apply_en: "Show the other version first.", stat_keys: ["tag:hook_type=contrast"], example_post_ids: ["p0"] },
+        { id: "P2", title_zh: "快节奏", title_en: "Fast pacing", description_zh: "剪辑紧凑。", description_en: "Tight cuts.", why_it_works_zh: "留住注意力。", why_it_works_en: "Holds attention.", how_to_apply_zh: "每两秒换画面。", how_to_apply_en: "Change shots every two seconds.", stat_keys: ["feat:pacing_band=fast"], example_post_ids: ["p1"] },
       ],
-      anti_patterns: [{ id: "A1", title_zh: "沒有鉤子", description_zh: "直接進入內容。", stat_keys: ["tag:hook_type=weak"], example_post_ids: ["p11"] }],
-      weekly_changes: [{ type: "first_version", pattern_id: "-", change_zh: "首版" }], open_questions_zh: [], sample_caveat_zh: "樣本小。",
+      anti_patterns: [{ id: "A1", title_zh: "没有钩子", title_en: "No hook", description_zh: "直接进入内容。", description_en: "Starts without a hook.", stat_keys: ["tag:hook_type=weak"], example_post_ids: ["p11"] }],
+      weekly_changes: [{ type: "first_version", pattern_id: "-", change_zh: "首版", change_en: "First version" }], open_questions: [], sample_caveat_zh: "样本小。", sample_caveat_en: "Small sample.",
     };
     expect(validatePlaybook(document, evidence)).toBe(document);
     expect(() => validatePlaybook({ ...document, patterns: [{ ...document.patterns[0]!, description_zh: "平均 120K 播放" }, document.patterns[1]!] }, evidence)).toThrow(/numbers come from stat_keys/);
-    expect(() => validatePlaybook({ ...document, patterns: [{ ...document.patterns[0]!, why_it_works_zh: "高播放組有 58% 用了它" }, document.patterns[1]!] }, evidence)).toThrow(/58%/);
-    expect(validatePlaybook({ ...document, patterns: [{ ...document.patterns[0]!, how_to_apply_zh: "像「10M+ 下載」那樣直接秀出商店頁數據，3 秒內給出反差" }, document.patterns[1]!] }, evidence).patterns[0]!.id).toBe("P1");
+    expect(() => validatePlaybook({ ...document, patterns: [{ ...document.patterns[0]!, why_it_works_en: "58% of top posts use it" }, document.patterns[1]!] }, evidence)).toThrow(/58%/);
+    expect(validatePlaybook({ ...document, patterns: [{ ...document.patterns[0]!, how_to_apply_zh: "像「10M+ 下载」那样直接秀出商店页数据，3 秒内给出反差" }, document.patterns[1]!] }, evidence).patterns[0]!.id).toBe("P1");
     expect(() => validatePlaybook({ ...document, patterns: [{ ...document.patterns[0]!, stat_keys: ["tag:invented=x"] }, document.patterns[1]!] }, evidence)).toThrow(/unknown statistic/);
 
     const playbook: StoredPlaybook = { id: "pb", market: "TR", version: 1, weekStart: marketWeekStart("TR", "2026-10-08T00:00:00.000Z"), createdAt: "", model: "m", evidence, document };
     const assessment = {
-      potential: "high", potential_reason_zh: "符合 P1。", matched_patterns: [{ pattern_id: "P1", evidence_zh: "第一秒對比" }], anti_patterns_hit: [], missing_patterns: [],
-      suggestions: [{ priority: 1, change_zh: "加快節奏", reason_zh: "P2", pattern_ids: ["P2"] }], similar_post_ids: ["p0", "unknown"],
+      potential: "high", potential_reason_zh: "符合 P1。", potential_reason_en: "Matches P1.", matched_patterns: [{ pattern_id: "P1", evidence_zh: "第一秒对比", evidence_en: "Contrast in the first second" }], anti_patterns_hit: [], missing_patterns: [],
+      suggestions: [{ priority: 1, change_zh: "加快节奏", change_en: "Tighten the pacing", reason_zh: "P2", reason_en: "P2", pattern_ids: ["P2"] }], similar_post_ids: ["p0", "unknown"],
     };
     expect(validateAssessment(assessment, playbook).similar_post_ids).toEqual(["p0"]);
-    expect(() => validateAssessment({ ...assessment, matched_patterns: [{ pattern_id: "P9", evidence_zh: "" }] }, playbook)).toThrow(/unknown pattern/);
+    expect(() => validateAssessment({ ...assessment, matched_patterns: [{ pattern_id: "P9", evidence_zh: "", evidence_en: "" }] }, playbook)).toThrow(/unknown pattern/);
     db.close();
   });
 
@@ -121,5 +122,21 @@ describe("weekly playbook schedule", () => {
     enqueueJob(db, { kind: "analyze", payload: { postId: "p3", version: 2 } });
     expect(marketsDueForPlaybook(db, "2026-10-08T00:00:00.000Z")).toEqual([]);
     db.close();
+  });
+});
+
+describe("bilingual labels", () => {
+  it("keeps the Site's copy identical and covers every taxonomy value in both languages", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const root = resolve(import.meta.dirname, "../..");
+    const docs = readFileSync(resolve(root, "docs/taxonomy/v3.labels.json"), "utf8");
+    expect(readFileSync(resolve(root, "site/lib/taxonomy-labels.json"), "utf8")).toBe(docs);
+    const labels = JSON.parse(docs) as { dimensions: Record<string, [string, string]>; values: Record<string, Record<string, [string, string]>> };
+    const taxonomy = JSON.parse(readFileSync(resolve(root, "docs/taxonomy/v3.json"), "utf8")) as { dimensions: Record<string, { values: Record<string, string> }> };
+    for (const [dimension, definition] of Object.entries(taxonomy.dimensions)) {
+      expect(labels.dimensions[dimension]?.every(Boolean)).toBe(true);
+      for (const value of Object.keys(definition.values)) expect(labels.values[dimension]?.[value]?.every(Boolean), `${dimension}.${value}`).toBe(true);
+    }
   });
 });

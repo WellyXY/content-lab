@@ -7,7 +7,7 @@ export function mediaKey(postId: string, filename: string): string | null {
 }
 export function getMediaBucket(): R2Bucket {
   const bucket = runtimeEnv().BUCKET;
-  if (!bucket) throw new Error("媒體儲存暫時無法使用");
+  if (!bucket) throw new Error("媒体存储暂时无法使用 · Media storage unavailable");
   return bucket;
 }
 export async function postKeyframes(postId: string): Promise<string[]> {

@@ -1,0 +1,580 @@
+{
+ "dimensions": {
+  "format": [
+   "内容形式",
+   "Format"
+  ],
+  "hook_type": [
+   "开场手法",
+   "Hook"
+  ],
+  "hook_channels": [
+   "吸睛渠道",
+   "Hook channels"
+  ],
+  "topic": [
+   "内容主题",
+   "Topic"
+  ],
+  "emotional_tone": [
+   "情绪基调",
+   "Tone"
+  ],
+  "structure": [
+   "叙事结构",
+   "Structure"
+  ],
+  "share_trigger": [
+   "互动动机",
+   "Share trigger"
+  ],
+  "product_timing": [
+   "品牌首次出现",
+   "First brand appearance"
+  ],
+  "cta": [
+   "行动号召",
+   "Call to action"
+  ],
+  "person_presence": [
+   "真人出镜",
+   "On-camera person"
+  ],
+  "format_elements": [
+   "辅助元素",
+   "Overlay elements"
+  ],
+  "brand_visibility": [
+   "品牌呈现",
+   "Brand visibility"
+  ],
+  "product_role": [
+   "产品角色",
+   "Product role"
+  ]
+ },
+ "values": {
+  "format": {
+   "talking_head": [
+    "对镜口播",
+    "Talking head"
+   ],
+   "skit_pov": [
+    "情景短剧",
+    "Skit / POV"
+   ],
+   "chat_screenshot": [
+    "聊天截图",
+    "Chat screenshot"
+   ],
+   "text_on_image": [
+    "文字图文",
+    "Text on image"
+   ],
+   "vlog_lifestyle": [
+    "生活记录",
+    "Vlog / lifestyle"
+   ],
+   "montage_music": [
+    "音乐混剪",
+    "Music montage"
+   ],
+   "app_screen": [
+    "应用画面",
+    "App screen"
+   ],
+   "other": [
+    "其他",
+    "Other"
+   ],
+   "photo_life": [
+    "生活照片",
+    "Life photos"
+   ]
+  },
+  "hook_type": {
+   "contrast": [
+    "对比反差",
+    "Contrast"
+   ],
+   "suspense": [
+    "悬念提问",
+    "Suspense / question"
+   ],
+   "result_first": [
+    "结果先行",
+    "Result first"
+   ],
+   "identity_callout": [
+    "点名特定人群",
+    "Identity callout"
+   ],
+   "relatable_pain": [
+    "共鸣痛点",
+    "Relatable pain"
+   ],
+   "counterintuitive": [
+    "反常识观点",
+    "Counterintuitive"
+   ],
+   "emotional_quote": [
+    "情绪金句",
+    "Emotional quote"
+   ],
+   "trend_template": [
+    "热门模板",
+    "Trend template"
+   ],
+   "visual_spectacle": [
+    "视觉吸睛",
+    "Visual spectacle"
+   ],
+   "weak": [
+    "无明确钩子",
+    "No clear hook"
+   ]
+  },
+  "hook_channels": {
+   "on_screen_text": [
+    "画面文字",
+    "On-screen text"
+   ],
+   "spoken": [
+    "口播",
+    "Spoken"
+   ],
+   "visual": [
+    "画面表现",
+    "Visual"
+   ],
+   "audio_trend": [
+    "热门音乐/音效",
+    "Trending audio"
+   ]
+  },
+  "topic": {
+   "crush_ambiguity": [
+    "暗恋暧昧",
+    "Crush / ambiguity"
+   ],
+   "trust_jealousy": [
+    "信任与吃醋",
+    "Trust / jealousy"
+   ],
+   "heartbreak": [
+    "失恋心碎",
+    "Heartbreak"
+   ],
+   "couple_sweet": [
+    "情侣日常",
+    "Couple life"
+   ],
+   "dating_meetup": [
+    "约会见面",
+    "Dating / meetup"
+   ],
+   "social_hangout": [
+    "交友聚会",
+    "Making friends"
+   ],
+   "singlehood": [
+    "单身心声",
+    "Singlehood"
+   ],
+   "emotional_support": [
+    "情感陪伴",
+    "Emotional support"
+   ],
+   "friend_banter": [
+    "朋友斗嘴",
+    "Friend banter"
+   ],
+   "self_worth": [
+    "自我价值",
+    "Self-worth"
+   ],
+   "flirting_skill": [
+    "搭讪聊天技巧",
+    "Flirting tips"
+   ],
+   "other": [
+    "其他",
+    "Other"
+   ]
+  },
+  "emotional_tone": {
+   "sweet": [
+    "甜蜜心动",
+    "Sweet"
+   ],
+   "sad": [
+    "伤感虐心",
+    "Sad"
+   ],
+   "funny": [
+    "搞笑自嘲",
+    "Funny"
+   ],
+   "relatable": [
+    "真实共鸣",
+    "Relatable"
+   ],
+   "aspirational": [
+    "向往治愈",
+    "Aspirational"
+   ],
+   "sharp": [
+    "犀利讽刺",
+    "Sharp"
+   ]
+  },
+  "structure": {
+   "single_beat": [
+    "单一画面/笑点",
+    "Single beat"
+   ],
+   "setup_twist": [
+    "铺垫反转",
+    "Setup and twist"
+   ],
+   "contrast_pair": [
+    "前后对照",
+    "A/B contrast"
+   ],
+   "story_arc": [
+    "完整故事",
+    "Story arc"
+   ],
+   "list_tips": [
+    "清单步骤",
+    "List / tips"
+   ],
+   "montage_flow": [
+    "情绪场景堆叠",
+    "Montage flow"
+   ]
+  },
+  "share_trigger": {
+   "tag_someone": [
+    "想发给某人",
+    "Tag someone"
+   ],
+   "self_expression": [
+    "表达心声",
+    "Self-expression"
+   ],
+   "debate": [
+    "站队讨论",
+    "Debate"
+   ],
+   "entertainment": [
+    "娱乐欣赏",
+    "Entertainment"
+   ],
+   "useful": [
+    "实用收藏",
+    "Useful"
+   ],
+   "none": [
+    "无明显互动动机",
+    "No clear trigger"
+   ]
+  },
+  "product_timing": {
+   "na": [
+    "不适用",
+    "N/A"
+   ],
+   "opening": [
+    "开场",
+    "Opening"
+   ],
+   "middle": [
+    "中段",
+    "Middle"
+   ],
+   "ending": [
+    "结尾",
+    "Ending"
+   ]
+  },
+  "cta": {
+   "none": [
+    "无行动号召",
+    "No CTA"
+   ],
+   "comment": [
+    "引导留言",
+    "Comment"
+   ],
+   "share_tag": [
+    "引导分享/标记",
+    "Share / tag"
+   ],
+   "dm_invite": [
+    "邀请私信",
+    "DM invite"
+   ],
+   "soft_suggest": [
+    "委婉推荐",
+    "Soft suggestion"
+   ],
+   "download": [
+    "引导下载使用",
+    "Download"
+   ],
+   "follow": [
+    "引导关注",
+    "Follow"
+   ]
+  },
+  "person_presence": {
+   "face": [
+    "清楚露脸",
+    "Face visible"
+   ],
+   "partial": [
+    "局部出镜",
+    "Partial"
+   ],
+   "none": [
+    "无真人出镜",
+    "No person"
+   ]
+  },
+  "format_elements": {
+   "chat_overlay": [
+    "聊天消息叠图",
+    "Chat overlay"
+   ],
+   "meme_insert": [
+    "梗图插入",
+    "Meme insert"
+   ],
+   "real_photo": [
+    "生活照片",
+    "Real photo"
+   ],
+   "notification": [
+    "手机通知",
+    "Notification"
+   ],
+   "split_screen": [
+    "分屏画面",
+    "Split screen"
+   ],
+   "face_filter": [
+    "脸部滤镜",
+    "Face filter"
+   ],
+   "none": [
+    "无辅助元素",
+    "None"
+   ],
+   "app_badge": [
+    "应用图标/角标",
+    "App badge"
+   ]
+  },
+  "brand_visibility": {
+   "none": [
+    "无品牌线索",
+    "No brand cue"
+   ],
+   "caption_only": [
+    "仅文案提及",
+    "Caption only"
+   ],
+   "unbranded_ui": [
+    "未确认品牌界面",
+    "Unbranded UI"
+   ],
+   "name_text": [
+    "文字提及品牌",
+    "Name in text"
+   ],
+   "name_spoken": [
+    "口播提及品牌",
+    "Name spoken"
+   ],
+   "branded_ui": [
+    "可辨识品牌界面",
+    "Branded UI"
+   ]
+  },
+  "product_role": {
+   "absent": [
+    "产品未出现",
+    "Absent"
+   ],
+   "background": [
+    "背景点缀",
+    "Background"
+   ],
+   "enabler": [
+    "推动情节",
+    "Story enabler"
+   ],
+   "punchline": [
+    "笑点/反差核心",
+    "Punchline"
+   ]
+  }
+ },
+ "computed": {
+  "format_type": {
+   "label": [
+    "帖子类型",
+    "Post type"
+   ],
+   "values": {
+    "video": [
+     "视频",
+     "Video"
+    ],
+    "photo": [
+     "图集",
+     "Carousel"
+    ]
+   }
+  },
+  "duration_band": {
+   "label": [
+    "时长段",
+    "Duration"
+   ],
+   "values": {
+    "<10s": [
+     "<10 秒",
+     "<10s"
+    ],
+    "10-20s": [
+     "10–20 秒",
+     "10–20s"
+    ],
+    "20-40s": [
+     "20–40 秒",
+     "20–40s"
+    ],
+    ">40s": [
+     ">40 秒",
+     ">40s"
+    ]
+   }
+  },
+  "pacing_band": {
+   "label": [
+    "剪辑节奏",
+    "Pacing"
+   ],
+   "values": {
+    "slow": [
+     "慢（每 10 秒少于 1 次切换）",
+     "Slow (<1 cut per 10s)"
+    ],
+    "medium": [
+     "中（每 10 秒 1–2.5 次切换）",
+     "Medium (1–2.5 cuts per 10s)"
+    ],
+    "fast": [
+     "快（每 10 秒超过 2.5 次切换）",
+     "Fast (>2.5 cuts per 10s)"
+    ]
+   }
+  },
+  "has_speech": {
+   "label": [
+    "口播",
+    "Speech"
+   ],
+   "values": {
+    "true": [
+     "有口播",
+     "Has speech"
+    ],
+    "false": [
+     "没有口播",
+     "No speech"
+    ]
+   }
+  },
+  "music_type": {
+   "label": [
+    "音乐类型",
+    "Music"
+   ],
+   "values": {
+    "original": [
+     "原声",
+     "Original sound"
+    ],
+    "library": [
+     "曲库音乐",
+     "Library music"
+    ],
+    "unknown": [
+     "未知",
+     "Unknown"
+    ]
+   }
+  },
+  "brand_in_caption": {
+   "label": [
+    "文案提到品牌",
+    "Brand in caption"
+   ],
+   "values": {
+    "true": [
+     "有",
+     "Yes"
+    ],
+    "false": [
+     "没有",
+     "No"
+    ]
+   }
+  },
+  "duration_s": {
+   "label": [
+    "时长（秒）",
+    "Duration (s)"
+   ]
+  },
+  "cuts_per_10s": {
+   "label": [
+    "每 10 秒剪辑次数",
+    "Cuts per 10s"
+   ]
+  },
+  "image_count": {
+   "label": [
+    "图集张数",
+    "Images"
+   ]
+  },
+  "speech_words_per_min": {
+   "label": [
+    "口播语速（词/分）",
+    "Speech rate (words/min)"
+   ]
+  },
+  "first_speech_s": {
+   "label": [
+    "第一句台词出现（秒）",
+    "First spoken line (s)"
+   ]
+  },
+  "on_screen_text_per_frame": {
+   "label": [
+    "每帧画面字数",
+    "On-screen characters per frame"
+   ]
+  },
+  "hashtag_count": {
+   "label": [
+    "hashtag 数",
+    "Hashtags"
+   ]
+  }
+ }
+}

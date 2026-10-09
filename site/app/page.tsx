@@ -6,6 +6,7 @@ import { Activity, Clock3, Flame, Radio, WifiOff } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { RelativeTime } from "@/components/content-lab/relative-time";
+import { useLocale } from "@/lib/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,11 +15,9 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { compactNumber, emptyDashboard, percentChange, type DashboardData } from "@/lib/content-lab";
 
-const chartConfig = {
-  views: { label: "新增 VV", color: "var(--chart-2)" },
-} satisfies ChartConfig;
-
 export default function OverviewPage() {
+  const { t } = useLocale();
+  const chartConfig = { views: { label: t("新增 VV", "New views"), color: "var(--chart-2)" } } satisfies ChartConfig;
   const [data, setData] = useState<DashboardData>(emptyDashboard);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -38,7 +37,7 @@ export default function OverviewPage() {
     return () => { controller.abort(); window.clearInterval(timer); };
   }, []);
 
-  if (error) return <div role="alert" className="py-20 text-center text-muted-foreground">暫時無法讀取總覽，請重新整理頁面。</div>;
+  if (error) return <div role="alert" className="py-20 text-center text-muted-foreground">{t("暂时无法读取总览，请刷新页面。", "Could not load the overview; refresh the page.")}</div>;
 
   const change = percentChange(data.totals.views7d, data.totals.viewsPrevious7d);
   const workerOnline = data.worker.connected;
@@ -51,23 +50,23 @@ export default function OverviewPage() {
             <span className="inline-block h-px w-7 bg-primary" />
             TikTok content signals
           </div>
-          <h1 className="text-3xl font-semibold tracking-[-0.045em] sm:text-[38px]">內容動能總覽</h1>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">看本週新增播放、正在加速的帖子，以及需要你注意的信號。</p>
+          <h1 className="text-3xl font-semibold tracking-[-0.045em] sm:text-[38px]">{t("内容动能总览", "Content momentum")}</h1>
+          <p className="mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">{t("看本周新增播放、正在加速的帖子，以及需要你注意的信号。", "This week's new views, the posts that are accelerating, and the signals that need you.")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge className={workerOnline ? "border-primary/20 bg-primary/8 text-primary" : "border-white/10 bg-white/[0.03] text-muted-foreground"} variant="outline">
             {workerOnline ? <Radio /> : <WifiOff />}
-            {workerOnline ? <>本機同步 · <RelativeTime value={data.worker.lastSeenAt} /></> : "等待本機 worker"}
+            {workerOnline ? <>{t("本机同步", "Local sync")} · <RelativeTime value={data.worker.lastSeenAt} /></> : t("等待本机 worker", "Waiting for the local worker")}
           </Badge>
         </div>
       </div>
 
-      {!loading && data.movers.length === 0 ? <div className="mb-5 rounded-xl border border-white/10 p-5 text-sm text-muted-foreground">尚未追蹤真實帖子。<Link className="ml-2 text-primary hover:underline" href="/bind">匯入 Excel／CSV 或貼上 TikTok 網址</Link></div> : null}
-      <section aria-label="關鍵指標" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard detail={`前 7 天 ${compactNumber(data.totals.viewsPrevious7d)}`} label="7 天新增 VV" loading={loading} signal={change == null ? "新窗口" : `${change >= 0 ? "+" : ""}${change.toFixed(1)}%`} value={compactNumber(data.totals.views7d)} />
-        <MetricCard detail="目前按帖齡排程" label="活躍追蹤" loading={loading} signal={`${data.totals.activePosts} 條`} value={compactNumber(data.totals.activePosts)} />
-        <MetricCard detail="本週發布帖子" label="破 1M 帖子" loading={loading} signal="里程碑" value={compactNumber(data.totals.millionPostsThisWeek)} />
-        <MetricCard detail={`${data.totals.runningJobs} 個執行中`} label="待處理任務" loading={loading} signal={data.totals.queuedJobs > 0 ? "待處理" : "已清空"} value={compactNumber(data.totals.queuedJobs)} warning={data.totals.queuedJobs > 0} />
+      {!loading && data.movers.length === 0 ? <div className="mb-5 rounded-xl border border-white/10 p-5 text-sm text-muted-foreground">{t("尚未追踪真实帖子。", "No posts are tracked yet.")}<Link className="ml-2 text-primary hover:underline" href="/bind">{t("导入 Excel／CSV 或粘贴 TikTok 链接", "Import Excel/CSV or paste TikTok links")}</Link></div> : null}
+      <section aria-label={t("关键指标", "Key metrics")} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard detail={t(`前 7 天 ${compactNumber(data.totals.viewsPrevious7d)}`, `Previous 7d ${compactNumber(data.totals.viewsPrevious7d)}`)} label={t("7 天新增 VV", "New views (7d)")} loading={loading} signal={change == null ? t("新窗口", "New window") : `${change >= 0 ? "+" : ""}${change.toFixed(1)}%`} value={compactNumber(data.totals.views7d)} />
+        <MetricCard detail={t("按帖龄排程", "Scheduled by post age")} label={t("活跃追踪", "Tracked")} loading={loading} signal={t(`${data.totals.activePosts} 条`, `${data.totals.activePosts} posts`)} value={compactNumber(data.totals.activePosts)} />
+        <MetricCard detail={t("本周发布的帖子", "Published this week")} label={t("破 1M 帖子", "1M+ posts")} loading={loading} signal={t("里程碑", "Milestone")} value={compactNumber(data.totals.millionPostsThisWeek)} />
+        <MetricCard detail={t(`${data.totals.runningJobs} 个执行中`, `${data.totals.runningJobs} running`)} label={t("待处理任务", "Queued jobs")} loading={loading} signal={data.totals.queuedJobs > 0 ? t("待处理", "Pending") : t("已清空", "Clear")} value={compactNumber(data.totals.queuedJobs)} warning={data.totals.queuedJobs > 0} />
       </section>
 
       <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,.75fr)]">
@@ -75,14 +74,14 @@ export default function OverviewPage() {
           <CardHeader className="border-b border-white/8 pb-5">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <CardTitle className="text-lg">播放動能</CardTitle>
-                <CardDescription className="mt-1">最近 7 天的新增 VV；缺失時段不補 0</CardDescription>
+                <CardTitle className="text-lg">{t("播放动能", "View momentum")}</CardTitle>
+                <CardDescription className="mt-1">{t("最近 7 天的新增 VV；缺失时段不补 0", "New views over the last 7 days; missing hours are not filled with 0")}</CardDescription>
               </div>
-              <Badge className="border-cyan-300/15 bg-cyan-300/8 text-cyan-200" variant="outline">週新增口徑</Badge>
+              <Badge className="border-cyan-300/15 bg-cyan-300/8 text-cyan-200" variant="outline">{t("周新增口径", "Weekly new views")}</Badge>
             </div>
           </CardHeader>
           <CardContent className="px-3 pb-2 pt-6 sm:px-6">
-            {loading ? <Skeleton className="h-[280px] w-full" /> : !data.trend.length ? <div className="grid h-[280px] place-items-center text-sm text-muted-foreground">等待採集快照；尚無歷史曲線</div> : (
+            {loading ? <Skeleton className="h-[280px] w-full" /> : !data.trend.length ? <div className="grid h-[280px] place-items-center text-sm text-muted-foreground">{t("等待采集快照；尚无历史曲线", "Waiting for snapshots; no history yet")}</div> : (
               <ChartContainer className="h-[280px] w-full aspect-auto" config={chartConfig}>
                 <AreaChart data={data.trend} margin={{ left: 0, right: 12, top: 12, bottom: 4 }}>
                   <defs>
@@ -105,21 +104,21 @@ export default function OverviewPage() {
         <Card className="border-white/8 bg-card/80 shadow-none">
           <CardHeader className="border-b border-white/8 pb-5">
             <CardTitle className="text-lg">24h Top movers</CardTitle>
-            <CardDescription>增速最快的帖子</CardDescription>
+            <CardDescription>{t("增速最快的帖子", "Fastest-growing posts")}</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y divide-white/8">
-              {!data.movers.length ? <p className="p-6 text-sm text-muted-foreground">目前沒有已採集的帖子。</p> : null}
+              {!data.movers.length ? <p className="p-6 text-sm text-muted-foreground">{t("目前没有已采集的帖子。", "No captured posts yet.")}</p> : null}
               {data.movers.slice(0, 5).map((post, index) => (
                 <Link className="group flex items-center gap-4 px-6 py-[18px] transition hover:bg-white/[0.025]" href={`/posts/${post.id}`} key={post.id}>
                   <span className="font-mono text-xs text-muted-foreground">{String(index + 1).padStart(2, "0")}</span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium group-hover:text-primary">{post.creatorHandle ?? "等待創作者資料"}</p>
-                    <p className="mt-1 font-mono text-[11px] text-muted-foreground">{post.market} · 累計 {compactNumber(post.views)}</p>
+                    <p className="truncate text-sm font-medium group-hover:text-primary">{post.creatorHandle ?? t("等待创作者资料", "Waiting for creator data")}</p>
+                    <p className="mt-1 font-mono text-[11px] text-muted-foreground">{post.market} · {t("累计", "total")} {compactNumber(post.views)}</p>
                   </div>
                   <div className="text-right">
                     <p className="font-mono text-sm font-semibold text-cyan-200">+{compactNumber(post.delta24h)}</p>
-                    <p className="mt-1 text-[11px] text-muted-foreground">24 小時</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">{t("24 小时", "24h")}</p>
                   </div>
                 </Link>
               ))}
@@ -131,8 +130,8 @@ export default function OverviewPage() {
       <section className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,.65fr)]">
         <Card className="border-white/8 bg-card/80 shadow-none">
           <CardHeader className="border-b border-white/8 pb-5">
-            <CardTitle className="text-lg">最近信號</CardTitle>
-            <CardDescription>里程碑、加速與運維事件</CardDescription>
+            <CardTitle className="text-lg">{t("最近信号", "Recent signals")}</CardTitle>
+            <CardDescription>{t("里程碑、加速与运维事件", "Milestones, acceleration and operations")}</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             {data.recentAlerts.length ? data.recentAlerts.slice(0, 5).map((alert) => {
@@ -142,22 +141,22 @@ export default function OverviewPage() {
                   <div className="grid size-10 shrink-0 place-items-center rounded-[10px] bg-[#ff715b]/12 text-[#ff8a76]"><Flame className="size-5" /></div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-medium">{String(payload.creatorHandle ?? "內容信號")}</p>
+                      <p className="font-medium">{String(payload.creatorHandle ?? t("内容信号", "Content signal"))}</p>
                       <Badge className="border-[#ff715b]/20 bg-[#ff715b]/10 text-[#ff9c8d]" variant="outline">{alert.rule.replaceAll("_", " ")}</Badge>
                     </div>
-                    <p className="mt-1 text-sm text-muted-foreground">目前 {compactNumber(Number(payload.currentViews ?? 0))} · 最新增量 +{compactNumber(Number(payload.delta ?? 0))}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{t("目前", "Now")} {compactNumber(Number(payload.currentViews ?? 0))} · {t("最新增量", "latest delta")} +{compactNumber(Number(payload.delta ?? 0))}</p>
                   </div>
                   <div className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground"><Clock3 className="size-3.5" /><RelativeTime value={alert.firedAt} /></div>
                 </div>
               );
-            }) : <div className="px-6 py-12 text-center text-sm text-muted-foreground">目前沒有新報警。</div>}
+            }) : <div className="px-6 py-12 text-center text-sm text-muted-foreground">{t("目前没有新报警。", "No new alerts.")}</div>}
           </CardContent>
         </Card>
 
         <Card className="border-white/8 bg-card/80 shadow-none">
           <CardHeader className="border-b border-white/8 pb-5">
-            <CardTitle className="text-lg">市場拆分</CardTitle>
-            <CardDescription>按 7 天新增 VV</CardDescription>
+            <CardTitle className="text-lg">{t("市场拆分", "By market")}</CardTitle>
+            <CardDescription>{t("按 7 天新增 VV", "By new views (7d)")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6 pt-6">
             {data.marketBreakdown.map((market) => {
@@ -165,7 +164,7 @@ export default function OverviewPage() {
               return (
                 <div key={market.market}>
                   <div className="mb-2 flex items-end justify-between gap-3">
-                    <div><p className="font-mono text-sm font-semibold">{market.market}</p><p className="mt-1 text-xs text-muted-foreground">{market.posts} 條帖子</p></div>
+                    <div><p className="font-mono text-sm font-semibold">{market.market}</p><p className="mt-1 text-xs text-muted-foreground">{t(`${market.posts} 条帖子`, `${market.posts} posts`)}</p></div>
                     <div className="text-right"><p className="font-mono text-sm">{compactNumber(market.views)}</p><p className="mt-1 text-xs text-muted-foreground">{share.toFixed(1)}%</p></div>
                   </div>
                   <Progress className="h-1.5 bg-white/[0.06] [&>div]:bg-primary" value={Math.min(100, share)} />
@@ -173,8 +172,8 @@ export default function OverviewPage() {
               );
             })}
             <div className="rounded-lg border border-white/8 bg-white/[0.025] p-4 text-sm text-muted-foreground">
-              <div className="flex items-center gap-2 text-foreground"><Activity className="size-4 text-primary" /><span className="font-medium">採集成功率</span></div>
-              <p className="mt-2">{data.totals.captureSuccessRate24h == null ? "等待第一批快照" : `最近 24 小時 ${data.totals.captureSuccessRate24h.toFixed(1)}%`}</p>
+              <div className="flex items-center gap-2 text-foreground"><Activity className="size-4 text-primary" /><span className="font-medium">{t("采集成功率", "Capture success")}</span></div>
+              <p className="mt-2">{data.totals.captureSuccessRate24h == null ? t("等待第一批快照", "Waiting for the first snapshots") : t(`最近 24 小时 ${data.totals.captureSuccessRate24h.toFixed(1)}%`, `Last 24h ${data.totals.captureSuccessRate24h.toFixed(1)}%`)}</p>
             </div>
           </CardContent>
         </Card>
@@ -183,10 +182,10 @@ export default function OverviewPage() {
       {!workerOnline ? (
         <section className="mt-4 flex flex-col gap-4 rounded-xl border border-primary/15 bg-primary/[0.045] p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
           <div>
-            <p className="font-medium">網站已就緒，等待你的 Mac 開始同步</p>
-            <p className="mt-1 text-sm text-muted-foreground">本機 worker 只做出站連線；啟動後會接走綁定任務並回傳數據。</p>
+            <p className="font-medium">{t("网站已就绪，等待你的 Mac 开始同步", "The site is ready; waiting for your Mac to sync")}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{t("本机 worker 只做出站连接；启动后会接走绑定任务并回传数据。", "The local worker only makes outbound connections; once running it picks up bind jobs and reports data.")}</p>
           </div>
-          <Button asChild variant="outline"><Link href="/bind">先綁定測試帖子</Link></Button>
+          <Button asChild variant="outline"><Link href="/bind">{t("先绑定测试帖子", "Bind a test post")}</Link></Button>
         </section>
       ) : null}
     </>

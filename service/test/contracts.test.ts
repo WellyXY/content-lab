@@ -31,8 +31,8 @@ describe("Codex output contract", () => {
       format: { value: "talking_head", confidence: "high", evidence: [1] },
       channels: { value: ["spoken"], confidence: "medium", evidence: [1] },
     },
-    frame_texts: [], hook_text: "hook", hook_translation_zh: "鉤子", transcript: "", summary_zh: "摘要",
-    script_segments: [], formula_zh: "公式", taxonomy_gaps: [],
+    frame_texts: [], hook_text: "hook", hook_translation_zh: "钩子", hook_translation_en: "hook", transcript: "", summary_zh: "摘要", summary_en: "summary",
+    script_segments: [], formula_zh: "公式", formula_en: "formula", taxonomy_gaps: [],
   };
 
   it("builds a closed schema and accepts only taxonomy values", () => {

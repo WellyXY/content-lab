@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Clock3, ListFilter, Play, Search } from "lucide-react";
 
 import { RelativeTime } from "@/components/content-lab/relative-time";
+import { useLocale } from "@/lib/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
@@ -14,7 +15,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MARKETS, compactNumber, tagLabel, type PostSummary } from "@/lib/content-lab";
 
+const POTENTIAL_RANK = { high: 0, medium: 1, low: 2 } as const;
+const POTENTIAL_BADGE = {
+  high: { label: ["爆款可能性高", "High potential"], className: "border-primary/20 bg-primary/8 text-primary" },
+  medium: { label: ["爆款可能性中", "Medium potential"], className: "border-amber-300/20 bg-amber-300/8 text-amber-200" },
+  low: { label: ["爆款可能性低", "Low potential"], className: "border-[#ff715b]/20 bg-[#ff715b]/8 text-[#ff9c8d]" },
+} as const;
+
 export default function PostsPage() {
+  const { t, lang } = useLocale();
   const [posts, setPosts] = useState<PostSummary[]>([]);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -49,7 +58,7 @@ export default function PostsPage() {
     return result.sort((a, b) => {
       if (sort === "views") return b.views - a.views;
       if (sort === "newest") return new Date(b.boundAt).getTime() - new Date(a.boundAt).getTime();
-      if (sort === "rank") return (a.rankPosition ?? 9999) - (b.rankPosition ?? 9999);
+      if (sort === "potential") return (a.potential ? POTENTIAL_RANK[a.potential] : 3) - (b.potential ? POTENTIAL_RANK[b.potential] : 3) || b.views - a.views;
       return b.delta24h - a.delta24h;
     });
   }, [market, posts, query, sort, state]);
@@ -59,11 +68,11 @@ export default function PostsPage() {
       <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <div className="mb-2 flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.15em] text-primary"><span className="inline-block h-px w-7 bg-primary" />Tracked content</div>
-          <h1 className="text-3xl font-semibold tracking-[-0.045em] sm:text-[38px]">帖子雷達</h1>
-          <p className="mt-2 text-sm text-muted-foreground sm:text-base">依增速、累計播放與實驗性排名找到值得追的內容。</p>
+          <h1 className="text-3xl font-semibold tracking-[-0.045em] sm:text-[38px]">{t("帖子雷达", "Post radar")}</h1>
+          <p className="mt-2 text-sm text-muted-foreground sm:text-base">{t("按增速、累计播放与爆款可能性找到值得跟进的内容。", "Find posts worth following by growth, total views and viral potential.")}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{filtered.length} 條</Badge>
+          <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{t(`${filtered.length} 条`, `${filtered.length} posts`)}</Badge>
         </div>
       </div>
 
@@ -71,30 +80,30 @@ export default function PostsPage() {
         <div className="grid gap-3 border-b border-white/8 p-4 md:grid-cols-[minmax(220px,1fr)_150px_150px_170px]">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input aria-label="搜尋創作者、文案或項目" className="h-10 border-white/10 bg-white/[0.025] pl-9" onChange={(event) => setQuery(event.target.value)} placeholder="搜尋創作者、文案、項目" value={query} />
+            <Input aria-label={t("搜索创作者、文案或项目", "Search creators, captions or projects")} className="h-10 border-white/10 bg-white/[0.025] pl-9" onChange={(event) => setQuery(event.target.value)} placeholder={t("搜索创作者、文案、项目", "Search creators, captions, projects")} value={query} />
           </div>
           <Select onValueChange={setMarket} value={market}>
-            <SelectTrigger className="h-10 w-full border-white/10 bg-white/[0.025]"><SelectValue placeholder="全部市場" /></SelectTrigger>
-            <SelectContent><SelectItem value="all">全部市場</SelectItem>{MARKETS.map((item) => <SelectItem key={item.code} value={item.code}>{item.code} {item.label}</SelectItem>)}</SelectContent>
+            <SelectTrigger className="h-10 w-full border-white/10 bg-white/[0.025]"><SelectValue placeholder={t("全部市场", "All markets")} /></SelectTrigger>
+            <SelectContent><SelectItem value="all">{t("全部市场", "All markets")}</SelectItem>{MARKETS.map((item) => <SelectItem key={item.code} value={item.code}>{item.code} {t(item.label, item.labelEn)}</SelectItem>)}</SelectContent>
           </Select>
           <Select onValueChange={setState} value={state}>
-            <SelectTrigger className="h-10 w-full border-white/10 bg-white/[0.025]"><SelectValue placeholder="全部狀態" /></SelectTrigger>
-            <SelectContent><SelectItem value="all">全部狀態</SelectItem><SelectItem value="active">每小時</SelectItem><SelectItem value="slow">每 3 小時</SelectItem><SelectItem value="daily">每日</SelectItem><SelectItem value="stopped">已停止</SelectItem></SelectContent>
+            <SelectTrigger className="h-10 w-full border-white/10 bg-white/[0.025]"><SelectValue placeholder={t("全部状态", "All states")} /></SelectTrigger>
+            <SelectContent><SelectItem value="all">{t("全部状态", "All states")}</SelectItem><SelectItem value="active">{t("每小时", "Hourly")}</SelectItem><SelectItem value="slow">{t("每 3 小时", "Every 3h")}</SelectItem><SelectItem value="daily">{t("每日", "Daily")}</SelectItem><SelectItem value="stopped">{t("已停止", "Stopped")}</SelectItem></SelectContent>
           </Select>
           <Select onValueChange={setSort} value={sort}>
             <SelectTrigger className="h-10 w-full border-white/10 bg-white/[0.025]"><ListFilter /><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="delta24h">24h 增量</SelectItem><SelectItem value="views">累計播放</SelectItem><SelectItem value="rank">實驗性排名</SelectItem><SelectItem value="newest">最新綁定</SelectItem></SelectContent>
+            <SelectContent><SelectItem value="delta24h">{t("24h 增量", "24h growth")}</SelectItem><SelectItem value="views">{t("累计播放", "Total views")}</SelectItem><SelectItem value="potential">{t("爆款可能性", "Viral potential")}</SelectItem><SelectItem value="newest">{t("最新绑定", "Newest")}</SelectItem></SelectContent>
           </Select>
         </div>
 
         <CardContent className="p-0">
           {loading ? <div className="space-y-2 p-5">{Array.from({ length: 6 }, (_, index) => <Skeleton className="h-16 w-full" key={index} />)}</div> : filtered.length ? (
             <Table>
-              <TableHeader><TableRow className="border-white/8 hover:bg-transparent"><TableHead className="pl-5 text-xs text-muted-foreground">內容</TableHead><TableHead className="text-xs text-muted-foreground">市場 / 項目</TableHead><TableHead className="text-right text-xs text-muted-foreground">累計 VV</TableHead><TableHead className="text-right text-xs text-muted-foreground">24h 增量</TableHead><TableHead className="hidden text-xs text-muted-foreground lg:table-cell">Agent 標籤</TableHead><TableHead className="hidden pr-5 text-right text-xs text-muted-foreground sm:table-cell">狀態</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow className="border-white/8 hover:bg-transparent"><TableHead className="pl-5 text-xs text-muted-foreground">{t("内容", "Post")}</TableHead><TableHead className="text-xs text-muted-foreground">{t("市场 / 项目", "Market / project")}</TableHead><TableHead className="text-right text-xs text-muted-foreground">{t("累计 VV", "Views")}</TableHead><TableHead className="text-right text-xs text-muted-foreground">{t("24h 增量", "24h growth")}</TableHead><TableHead className="hidden text-xs text-muted-foreground lg:table-cell">{t("Agent 标签", "Agent tags")}</TableHead><TableHead className="hidden pr-5 text-right text-xs text-muted-foreground sm:table-cell">{t("状态", "Status")}</TableHead></TableRow></TableHeader>
               <TableBody>{filtered.map((post) => <PostRow key={post.id} post={post} />)}</TableBody>
             </Table>
           ) : (
-            <Empty className="border-0 py-24"><EmptyHeader><EmptyMedia variant="icon"><Search /></EmptyMedia><EmptyTitle>{error ? "暫時無法讀取帖子" : posts.length ? "沒有符合條件的帖子" : "尚未加入真實帖子"}</EmptyTitle><EmptyDescription>{error ? "請重新整理重試，系統不會以示範內容取代資料。" : "匯入 Excel／CSV 或貼上 TikTok 連結，開始採集真實數據。"}</EmptyDescription></EmptyHeader></Empty>
+            <Empty className="border-0 py-24"><EmptyHeader><EmptyMedia variant="icon"><Search /></EmptyMedia><EmptyTitle>{error ? t("暂时无法读取帖子", "Could not load posts") : posts.length ? t("没有符合条件的帖子", "No posts match") : t("尚未加入真实帖子", "No posts yet")}</EmptyTitle><EmptyDescription>{error ? t("请刷新重试，系统不会用示范内容代替数据。", "Refresh to retry; the site never substitutes demo data.") : t("导入 Excel／CSV 或粘贴 TikTok 链接，开始采集真实数据。", "Import Excel/CSV or paste TikTok links to start collecting real data.")}</EmptyDescription></EmptyHeader></Empty>
           )}
         </CardContent>
       </Card>
@@ -103,32 +112,34 @@ export default function PostsPage() {
 }
 
 function PostRow({ post }: { post: PostSummary }) {
+  const { t, lang } = useLocale();
   const status = statusCopy(post);
+  const potential = post.potential ? POTENTIAL_BADGE[post.potential] : null;
   return (
     <TableRow className="border-white/8 hover:bg-white/[0.025]">
       <TableCell className="max-w-[320px] py-3 pl-5">
         <div className="flex items-center gap-3">
-          <Link aria-label={`查看 ${post.creatorHandle ?? "帖子"}`} className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-lg border border-white/10 bg-gradient-to-br from-cyan-300/15 to-primary/10 text-cyan-200" href={`/posts/${post.id}`}>
+          <Link aria-label={t(`查看 ${post.creatorHandle ?? "帖子"}`, `Open ${post.creatorHandle ?? "post"}`)} className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-lg border border-white/10 bg-gradient-to-br from-cyan-300/15 to-primary/10 text-cyan-200" href={`/posts/${post.id}`}>
             {post.thumbnailUrl ? <img alt="" className="h-full w-full object-cover" src={post.thumbnailUrl} /> : <Play className="size-4" />}
           </Link>
           <div className="min-w-0">
-            <Link className="block truncate text-sm font-medium hover:text-primary" href={`/posts/${post.id}`}>{post.creatorHandle ?? "等待創作者資料"}</Link>
+            <Link className="block truncate text-sm font-medium hover:text-primary" href={`/posts/${post.id}`}>{post.creatorHandle ?? t("等待创作者资料", "Waiting for creator data")}</Link>
             <p className="mt-1 truncate text-xs text-muted-foreground">{post.caption ?? post.url}</p>
           </div>
         </div>
       </TableCell>
-      <TableCell><p className="font-mono text-xs font-semibold">{post.market}</p><p className="mt-1 max-w-32 truncate text-xs text-muted-foreground">{post.projectTag ?? "未分類"}</p></TableCell>
+      <TableCell><p className="font-mono text-xs font-semibold">{post.market}</p><p className="mt-1 max-w-32 truncate text-xs text-muted-foreground">{post.projectTag ?? t("未分类", "Unassigned")}</p></TableCell>
       <TableCell className="text-right font-mono font-semibold">{compactNumber(post.lastCapturedAt ? post.views : null)}</TableCell>
       <TableCell className="text-right"><span className="font-mono font-semibold text-cyan-200">{post.lastCapturedAt ? `+${compactNumber(post.delta24h)}` : "—"}</span></TableCell>
-      <TableCell className="hidden lg:table-cell"><div className="flex max-w-56 flex-wrap gap-1.5">{post.hookType ? <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{tagLabel(post.hookType)}</Badge> : null}{post.topic ? <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{tagLabel(post.topic)}</Badge> : null}{post.rankPosition ? <Badge className="border-primary/15 bg-primary/8 text-primary" variant="outline">#{post.rankPosition}/{post.rankTotal}</Badge> : null}</div></TableCell>
-      <TableCell className="hidden pr-5 text-right sm:table-cell"><Badge className={status.className} variant="outline">{status.label}</Badge><div className="mt-1.5 flex items-center justify-end gap-1 text-[11px] text-muted-foreground"><Clock3 className="size-3" /><RelativeTime value={post.lastCapturedAt} /></div></TableCell>
+      <TableCell className="hidden lg:table-cell"><div className="flex max-w-56 flex-wrap gap-1.5">{post.hookType ? <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{tagLabel(post.hookType, "hook_type", lang)}</Badge> : null}{post.topic ? <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{tagLabel(post.topic, "topic", lang)}</Badge> : null}{potential ? <Badge className={potential.className} variant="outline">{t(potential.label[0], potential.label[1])}</Badge> : null}</div></TableCell>
+      <TableCell className="hidden pr-5 text-right sm:table-cell"><Badge className={status.className} variant="outline">{t(status.label[0], status.label[1])}</Badge><div className="mt-1.5 flex items-center justify-end gap-1 text-[11px] text-muted-foreground"><Clock3 className="size-3" /><RelativeTime value={post.lastCapturedAt} /></div></TableCell>
     </TableRow>
   );
 }
 
 function statusCopy(post: PostSummary) {
-  if (post.analysisState === "failed") return { label: "分析失敗", className: "border-[#ff715b]/20 bg-[#ff715b]/8 text-[#ff9c8d]" };
-  if (post.analysisState !== "complete") return { label: "分析中", className: "border-amber-300/20 bg-amber-300/8 text-amber-200" };
-  if (post.trackingState === "stopped") return { label: "已停止", className: "border-white/10 bg-white/[0.03] text-muted-foreground" };
-  return { label: "追蹤中", className: "border-primary/20 bg-primary/8 text-primary" };
+  if (post.analysisState === "failed") return { label: ["分析失败", "Analysis failed"] as const, className: "border-[#ff715b]/20 bg-[#ff715b]/8 text-[#ff9c8d]" };
+  if (post.analysisState !== "complete") return { label: ["分析中", "Analyzing"] as const, className: "border-amber-300/20 bg-amber-300/8 text-amber-200" };
+  if (post.trackingState === "stopped") return { label: ["已停止", "Stopped"] as const, className: "border-white/10 bg-white/[0.03] text-muted-foreground" };
+  return { label: ["追踪中", "Tracking"] as const, className: "border-primary/20 bg-primary/8 text-primary" };
 }

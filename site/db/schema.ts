@@ -75,6 +75,7 @@ export const postFeatures = sqliteTable("post_features", {
   scriptJson: text("script_json").notNull().default("[]"),
   computedJson: text("computed_json").notNull().default("{}"),
   framesJson: text("frames_json").notNull().default("[]"),
+  textsJson: text("texts_json").notNull().default("{}"),
   createdAt: text("created_at").notNull(),
 });
 

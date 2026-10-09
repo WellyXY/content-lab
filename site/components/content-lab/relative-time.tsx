@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 
 import { timeAgo } from "@/lib/content-lab";
+import { useLocale } from "@/lib/i18n";
 
 export function RelativeTime({ value }: { value: string | null }) {
+  const { lang } = useLocale();
   const [referenceTime, setReferenceTime] = useState<number | null>(null);
 
   useEffect(() => {
@@ -14,5 +16,5 @@ export function RelativeTime({ value }: { value: string | null }) {
     return () => window.clearInterval(timer);
   }, []);
 
-  return <>{referenceTime == null ? "—" : timeAgo(value, referenceTime)}</>;
+  return <>{referenceTime == null ? "—" : timeAgo(value, referenceTime, lang)}</>;
 }

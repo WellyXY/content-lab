@@ -26,7 +26,7 @@ const sortColumns: Record<string, string> = {
   delta24h: "p.delta_24h DESC",
   views: "p.views DESC",
   newest: "p.bound_at DESC",
-  rank: "COALESCE(pred.rank_position, 999999) ASC",
+  potential: "CASE pred.band WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 3 END ASC, p.views DESC",
 };
 
 export async function GET(request: Request) {
@@ -50,7 +50,7 @@ export async function GET(request: Request) {
     }
 
     const sql = `SELECT p.*,
-      pred.rank_position, pred.rank_total,
+      pred.rank_position, pred.rank_total, pred.band AS potential_band,
       json_extract(f.tags_json, '$.hook_type.value') AS hook_type,
       json_extract(f.tags_json, '$.topic.value') AS topic
       FROM posts p
@@ -62,21 +62,21 @@ export async function GET(request: Request) {
     return Response.json({ mode: "live", posts: result.results.map((row) => rowToPost(row as Record<string, unknown>)) }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     console.error("posts read failed", error);
-    return jsonError("暫時無法讀取帖子，請稍後重試", 503);
+    return jsonError("暂时无法读取帖子，请稍后重试 · Could not load posts; try again later", 503);
   }
 }
 
 export async function POST(request: Request) {
-  if (Number(request.headers.get("content-length") ?? 0) > 120_000) return jsonError("請求太大", 413);
+  if (Number(request.headers.get("content-length") ?? 0) > 120_000) return jsonError("请求太大 · Request too large", 413);
   let parsed: z.infer<typeof bindSchema>;
   try {
     parsed = bindSchema.parse(await request.json());
   } catch (error) {
-    return jsonError("綁定資料格式不正確", 400, error instanceof z.ZodError ? error.flatten() : undefined);
+    return jsonError("绑定数据格式不正确 · Invalid bind request", 400, error instanceof z.ZodError ? error.flatten() : undefined);
   }
 
   const requiredPassphrase = typeof runtimeEnv().BIND_PASSPHRASE === "string" ? runtimeEnv().BIND_PASSPHRASE : process.env.BIND_PASSPHRASE;
-  if (requiredPassphrase && parsed.passphrase !== requiredPassphrase) return jsonError("綁定口令不正確", 403);
+  if (requiredPassphrase && parsed.passphrase !== requiredPassphrase) return jsonError("绑定口令不正确 · Wrong bind passphrase", 403);
 
   const invalid: Array<{ input: string; error: string }> = [];
   const normalized = new Map<string, { url: string; videoId: string | null }>();
@@ -85,10 +85,10 @@ export async function POST(request: Request) {
       const item = normalizeTikTokUrl(input);
       normalized.set(item.url, item);
     } catch (error) {
-      invalid.push({ input, error: error instanceof Error ? error.message : "網址不正確" });
+      invalid.push({ input, error: error instanceof Error ? error.message : "链接不正确 · Invalid link" });
     }
   }
-  if (!normalized.size) return jsonError("沒有可綁定的 TikTok 網址", 400, invalid);
+  if (!normalized.size) return jsonError("没有可绑定的 TikTok 链接 · No bindable TikTok links", 400, invalid);
 
   try {
     const db = getD1();
@@ -115,9 +115,9 @@ export async function POST(request: Request) {
     }
     const fresh = urls.filter((item) => !existing.has(item));
     const currentRate = integer((rateResult.results[0] as Record<string, unknown> | undefined)?.count);
-    if (currentRate + fresh.length > 300) return jsonError("此網路每小時最多綁定 300 條帖子", 429);
-    if (integer((activeResult.results[0] as Record<string, unknown> | undefined)?.count) + fresh.length > 1_000) return jsonError("活躍追蹤已達 1,000 條上限", 409);
-    if (integer((dailyResult.results[0] as Record<string, unknown> | undefined)?.count) + fresh.length > 300) return jsonError("今日新增已達 300 條上限", 429);
+    if (currentRate + fresh.length > 300) return jsonError("此网络每小时最多绑定 300 条帖子 · This network can bind at most 300 posts per hour", 429);
+    if (integer((activeResult.results[0] as Record<string, unknown> | undefined)?.count) + fresh.length > 1_000) return jsonError("活跃追踪已达 1,000 条上限 · The 1,000 active post limit is reached", 409);
+    if (integer((dailyResult.results[0] as Record<string, unknown> | undefined)?.count) + fresh.length > 300) return jsonError("今日新增已达 300 条上限 · Daily limit of 300 new posts reached", 429);
 
     const accepted: Array<{ id: string; url: string }> = [];
     const statements: D1PreparedStatement[] = [
@@ -150,6 +150,6 @@ export async function POST(request: Request) {
     return Response.json({ accepted, duplicates: urls.filter((item) => existing.has(item)), invalid }, { status: accepted.length ? 202 : 200 });
   } catch (error) {
     console.error("post binding failed", error);
-    return jsonError("暫時無法加入處理佇列，請稍後再試", 503);
+    return jsonError("暂时无法加入处理队列，请稍后再试 · Could not queue the posts; try again later", 503);
   }
 }

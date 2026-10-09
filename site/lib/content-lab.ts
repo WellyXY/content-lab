@@ -1,14 +1,14 @@
 /** Markets a post can be bound to; the label shows the timezone used for day boundaries. */
 export const MARKETS = [
-  { code: "ID", label: "印尼", timezone: "UTC+7" },
-  { code: "VN", label: "越南", timezone: "UTC+7" },
-  { code: "TR", label: "土耳其", timezone: "UTC+3" },
-  { code: "GCC", label: "海灣地區", timezone: "UTC+3" },
-  { code: "TH", label: "泰國", timezone: "UTC+7" },
+  { code: "ID", label: "印尼", labelEn: "Indonesia", timezone: "UTC+7" },
+  { code: "VN", label: "越南", labelEn: "Vietnam", timezone: "UTC+7" },
+  { code: "TR", label: "土耳其", labelEn: "Türkiye", timezone: "UTC+3" },
+  { code: "GCC", label: "海湾地区", labelEn: "GCC", timezone: "UTC+3" },
+  { code: "TH", label: "泰国", labelEn: "Thailand", timezone: "UTC+7" },
 ] as const;
 export type MarketCode = (typeof MARKETS)[number]["code"];
 export const MARKET_CODES = MARKETS.map((market) => market.code) as [MarketCode, ...MarketCode[]];
-export const marketLabel = (code: string): string => MARKETS.find((market) => market.code === code)?.label ?? code;
+export const marketLabel = (code: string, lang: "zh" | "en" = "zh"): string => { const market = MARKETS.find((item) => item.code === code); return market ? (lang === "zh" ? market.label : market.labelEn) : code; };
 
 export type WorkerStatus = {
   connected: boolean;
@@ -39,6 +39,8 @@ export type PostSummary = {
   lastCapturedAt: string | null;
   rankPosition?: number | null;
   rankTotal?: number | null;
+  /** Viral potential from the latest playbook assessment. */
+  potential?: "high" | "medium" | "low" | null;
   hookType?: string | null;
   topic?: string | null;
 };
@@ -67,6 +69,8 @@ export type PostFeature = {
   script: ScriptSegment[];
   computed: ComputedFeatures;
   frames: Array<{ frame: number; timeS: number | null; imageIndex: number | null }>;
+  /** Bilingual Agent texts: hook_translation_zh/_en, summary_zh/_en, formula_zh/_en. */
+  texts: Record<string, string>;
   createdAt: string;
 };
 
@@ -76,11 +80,11 @@ export type ScriptSegment = {
   end_s: number;
   role: "hook" | "setup" | "development" | "turn" | "payoff" | "cta" | "other";
   frames: number[];
-  visual_zh: string;
+  visual_zh: string; visual_en?: string;
   on_screen_text: string;
-  on_screen_text_zh: string;
+  on_screen_text_zh: string; on_screen_text_en?: string;
   spoken: string;
-  spoken_zh: string;
+  spoken_zh: string; spoken_en?: string;
 };
 
 /** Program-computed facts; every field may be missing on analyses made before they existed. */
@@ -98,15 +102,20 @@ export type PlaybookAssessment = {
   playbook: { id: string; market: string; version: number; weekStart: string } | null;
   inSample?: string | null;
   potential?: "high" | "medium" | "low";
-  potential_reason_zh?: string;
-  matched_patterns?: Array<{ pattern_id: string; evidence_zh: string }>;
-  anti_patterns_hit?: Array<{ pattern_id: string; evidence_zh: string }>;
-  missing_patterns?: Array<{ pattern_id: string; gap_zh: string }>;
-  suggestions?: Array<{ priority: 1 | 2 | 3; change_zh: string; reason_zh: string; pattern_ids: string[] }>;
+  potential_reason_zh?: string; potential_reason_en?: string;
+  matched_patterns?: Array<{ pattern_id: string; evidence_zh: string; evidence_en?: string }>;
+  anti_patterns_hit?: Array<{ pattern_id: string; evidence_zh: string; evidence_en?: string }>;
+  missing_patterns?: Array<{ pattern_id: string; gap_zh: string; gap_en?: string }>;
+  suggestions?: Array<{ priority: 1 | 2 | 3; change_zh: string; change_en?: string; reason_zh: string; reason_en?: string; pattern_ids: string[] }>;
   similar_post_ids?: string[];
 };
 
-export type PlaybookPattern = { id: string; title_zh: string; description_zh: string; why_it_works_zh?: string; how_to_apply_zh?: string; stat_keys: string[]; example_post_ids: string[] };
+/** Agent text arrives as `_zh` (Simplified Chinese) and `_en`; playbooks from before the bilingual format only have `_zh`. */
+export type PlaybookPattern = {
+  id: string; title_zh: string; title_en?: string; description_zh: string; description_en?: string;
+  why_it_works_zh?: string; why_it_works_en?: string; how_to_apply_zh?: string; how_to_apply_en?: string;
+  stat_keys: string[]; example_post_ids: string[];
+};
 
 export type PlaybookSummary = { id: string; market: string; version: number; weekStart: string; createdAt: string };
 
@@ -114,18 +123,19 @@ export type PlaybookData = PlaybookSummary & {
   model: string | null;
   markdown: string;
   document: {
-    summary_zh: string;
+    summary_zh: string; summary_en?: string;
     patterns: PlaybookPattern[];
     anti_patterns: PlaybookPattern[];
-    weekly_changes: Array<{ type: string; pattern_id: string; change_zh: string }>;
-    open_questions_zh: string[];
-    sample_caveat_zh: string;
+    weekly_changes: Array<{ type: string; pattern_id: string; change_zh: string; change_en?: string }>;
+    open_questions?: Array<{ zh: string; en: string }>;
+    open_questions_zh?: string[];
+    sample_caveat_zh: string; sample_caveat_en?: string;
   };
   evidence: {
     eligiblePosts: number; topSize: number; bottomSize: number; topMinViews: number; medianViews: number;
-    stats: Array<{ key: string; label: string; posts: number; topPosts: number; bottomPosts: number; topShare: number; bottomShare: number; lift: number; medianViews: number }>;
-    numeric: Array<{ key: string; label: string; topMedian: number | null; bottomMedian: number | null }>;
-    posts: Array<{ id: string; views: number; tier: string; summaryZh: string; formulaZh: string }>;
+    stats: Array<{ key: string; label: string; labelEn?: string; posts: number; topPosts: number; bottomPosts: number; topShare: number; bottomShare: number; lift: number; medianViews: number }>;
+    numeric: Array<{ key: string; label: string; labelEn?: string; topMedian: number | null; bottomMedian: number | null }>;
+    posts: Array<{ id: string; views: number; tier: string; summaryZh: string; summaryEn?: string; formulaZh: string; formulaEn?: string }>;
   };
 };
 
@@ -193,15 +203,17 @@ export function percentChange(current: number, previous: number): number | null 
   return ((current - previous) / previous) * 100;
 }
 
-export function timeAgo(value: string | null, referenceTime = Date.now()): string {
-  if (!value) return "尚未同步";
+export function timeAgo(value: string | null, referenceTime = Date.now(), lang: "zh" | "en" = "zh"): string {
+  const zh = lang === "zh";
+  if (!value) return zh ? "尚未同步" : "Not synced yet";
   const diff = Math.max(0, referenceTime - new Date(value).getTime());
   const minutes = Math.round(diff / 60_000);
-  if (minutes < 1) return "剛剛";
-  if (minutes < 60) return `${minutes} 分鐘前`;
+  if (minutes < 1) return zh ? "刚刚" : "just now";
+  if (minutes < 60) return zh ? `${minutes} 分钟前` : `${minutes} min ago`;
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} 小時前`;
-  return `${Math.round(hours / 24)} 天前`;
+  if (hours < 24) return zh ? `${hours} 小时前` : `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  return zh ? `${days} 天前` : `${days} d ago`;
 }
 
 export { tagLabel, tagDimensionLabel, tagConfidenceLabel } from "./tag-labels";

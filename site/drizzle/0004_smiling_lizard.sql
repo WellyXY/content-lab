@@ -1,0 +1,1 @@
+ALTER TABLE `post_features` ADD `texts_json` text DEFAULT '{}' NOT NULL;

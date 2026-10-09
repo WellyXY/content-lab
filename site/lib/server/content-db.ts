@@ -69,6 +69,7 @@ export function rowToPost(row: Record<string, unknown>): PostSummary {
     lastCapturedAt: nullableString(row.last_captured_at),
     rankPosition: nullableInteger(row.rank_position),
     rankTotal: nullableInteger(row.rank_total),
+    potential: ["high", "medium", "low"].includes(String(row.potential_band)) ? row.potential_band as PostSummary["potential"] : null,
     hookType: nullableString(row.hook_type),
     topic: nullableString(row.topic),
   };
@@ -102,6 +103,7 @@ export function rowToFeature(row: Record<string, unknown> | null): PostFeature |
     script: safeJson<PostFeature["script"]>(row.script_json, []),
     computed: safeJson<PostFeature["computed"]>(row.computed_json, {}),
     frames: safeJson<PostFeature["frames"]>(row.frames_json, []),
+    texts: safeJson<PostFeature["texts"]>(row.texts_json, {}),
     createdAt: String(row.created_at),
   };
 }
@@ -134,15 +136,15 @@ export function rowToAlert(row: Record<string, unknown>): AlertItem {
 
 export function normalizeTikTokUrl(input: string): { url: string; videoId: string | null } {
   let candidate = input.trim();
-  if (!candidate) throw new Error("網址不能為空");
+  if (!candidate) throw new Error("链接不能为空 · Link is empty");
   if (!/^https?:\/\//i.test(candidate)) candidate = `https://${candidate}`;
 
   const parsed = new URL(candidate);
   const hostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
   if (hostname !== "tiktok.com" && !hostname.endsWith(".tiktok.com")) {
-    throw new Error("只接受 TikTok 網址");
+    throw new Error("只接受 TikTok 链接 · Only TikTok links are accepted");
   }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error("網址協議不支援");
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error("链接协议不支持 · Unsupported link protocol");
 
   parsed.protocol = "https:";
   parsed.hash = "";
@@ -171,10 +173,10 @@ function constantTimeEqual(left: string, right: string): boolean {
 
 export function requireWorker(request: Request): Response | null {
   const configured = nullableString(runtimeEnv().LOCAL_WORKER_TOKEN) ?? nullableString(process.env.LOCAL_WORKER_TOKEN);
-  if (!configured) return jsonError("本機 worker 尚未配對", 503);
+  if (!configured) return jsonError("本机 worker 尚未配对 · Local worker not paired", 503);
   const header = request.headers.get("authorization") ?? "";
   const supplied = header.startsWith("Bearer ") ? header.slice(7) : "";
-  if (!supplied || !constantTimeEqual(supplied, configured)) return jsonError("worker token 無效", 401);
+  if (!supplied || !constantTimeEqual(supplied, configured)) return jsonError("worker token 无效 · Invalid worker token", 401);
   return null;
 }
 

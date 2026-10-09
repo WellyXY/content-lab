@@ -25,9 +25,9 @@ type SyncEvent = z.infer<typeof eventSchema>;
 export async function POST(request: Request) {
   const rejected = requireWorker(request);
   if (rejected) return rejected;
-  if (Number(request.headers.get("content-length") ?? 0) > 1_500_000) return jsonError("同步批次太大", 413);
+  if (Number(request.headers.get("content-length") ?? 0) > 1_500_000) return jsonError("同步批次太大 · Sync batch too large", 413);
   let body: z.infer<typeof bodySchema>;
-  try { body = bodySchema.parse(await request.json()); } catch (error) { return jsonError("同步資料格式不正確", 400, error instanceof z.ZodError ? error.flatten() : undefined); }
+  try { body = bodySchema.parse(await request.json()); } catch (error) { return jsonError("同步数据格式不正确 · Invalid sync data", 400, error instanceof z.ZodError ? error.flatten() : undefined); }
 
   try {
     const db = getD1();
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
     return Response.json({ accepted, ignored, errors, serverTime: now });
   } catch (error) {
     console.error("sync batch failed", error);
-    return jsonError("同步服務暫時不可用", 503);
+    return jsonError("同步服务暂时不可用 · Sync temporarily unavailable", 503);
   }
 }
 
@@ -208,13 +208,13 @@ async function syncFeatures(db: D1Database, event: SyncEvent) {
   const keyframes = Array.isArray(pick(payload, "keyframes")) ? pick(payload, "keyframes") : [];
   await db.prepare(`INSERT INTO post_features (
       post_id, version, model, taxonomy_version, tags_json, hook_text, hook_translation_zh, transcript, summary_zh, formula_zh, keyframes_json,
-      script_json, computed_json, frames_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      script_json, computed_json, frames_json, texts_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(post_id) DO UPDATE SET version = excluded.version, model = excluded.model, taxonomy_version = excluded.taxonomy_version,
       tags_json = excluded.tags_json, hook_text = excluded.hook_text, hook_translation_zh = excluded.hook_translation_zh,
       transcript = excluded.transcript, summary_zh = excluded.summary_zh, formula_zh = excluded.formula_zh,
       keyframes_json = excluded.keyframes_json, script_json = excluded.script_json, computed_json = excluded.computed_json,
-      frames_json = excluded.frames_json, created_at = excluded.created_at`).bind(
+      frames_json = excluded.frames_json, texts_json = excluded.texts_json, created_at = excluded.created_at`).bind(
       postId, nullableString(pick(payload, "version")) ?? event.id, nullableString(pick(payload, "model")),
       nullableString(pick(payload, "taxonomyVersion", "taxonomy_version")) ?? "v3", JSON.stringify(tags),
       nullableString(pick(payload, "hookText", "hook_text")), nullableString(pick(payload, "hookTranslationZh", "hook_translation_zh")) ?? nullableString(pick(analysis, "hook_translation_zh")),
@@ -223,6 +223,8 @@ async function syncFeatures(db: D1Database, event: SyncEvent) {
       JSON.stringify(Array.isArray(pick(payload, "script")) ? pick(payload, "script") : []),
       JSON.stringify(asRecord(pick(payload, "computed"))),
       JSON.stringify(Array.isArray(pick(payload, "frames")) ? pick(payload, "frames") : []),
+      JSON.stringify(Object.fromEntries(["hook_translation_zh", "hook_translation_en", "summary_zh", "summary_en", "formula_zh", "formula_en"]
+        .map((key) => [key, nullableString(pick(analysis, key))]).filter(([, value]) => value))),
       event.occurredAt,
     ).run();
   await db.prepare("UPDATE posts SET analysis_state = 'complete', updated_at = ? WHERE id = ?").bind(new Date().toISOString(), postId).run();

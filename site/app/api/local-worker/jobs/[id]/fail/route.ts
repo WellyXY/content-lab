@@ -14,12 +14,12 @@ export async function POST(request: Request, context: Context) {
   const rejected = requireWorker(request);
   if (rejected) return rejected;
   let body: z.infer<typeof schema>;
-  try { body = schema.parse(await request.json()); } catch { return jsonError("失敗回報格式不正確", 400); }
+  try { body = schema.parse(await request.json()); } catch { return jsonError("失败回报格式不正确 · Invalid failure report", 400); }
   const { id } = await context.params;
   try {
     const db = getD1();
     const job = await db.prepare("SELECT attempts FROM jobs WHERE id = ? AND status = 'processing' AND lease_owner = ?").bind(id, body.workerId).first<Record<string, unknown>>();
-    if (!job) return jsonError("工作租約已失效", 409);
+    if (!job) return jsonError("任务租约已失效 · Job lease expired", 409);
     const attempts = integer(job.attempts);
     const terminal = body.retryable === false || attempts >= 5;
     const now = new Date();
@@ -29,6 +29,6 @@ export async function POST(request: Request, context: Context) {
     return Response.json({ id, status: terminal ? "failed" : "retry", runAt });
   } catch (error) {
     console.error("job failure update failed", error);
-    return jsonError("無法回報工作失敗", 503);
+    return jsonError("无法回报任务失败 · Could not report the failure", 503);
   }
 }

@@ -18,6 +18,6 @@ export async function GET() {
     }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     console.error("jobs read failed", error);
-    return jsonError("暫時無法讀取處理佇列", 503);
+    return jsonError("暂时无法读取处理队列 · Could not load the queue", 503);
   }
 }

@@ -55,6 +55,6 @@ export async function GET() {
     return Response.json(response, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     console.error("dashboard read failed", error);
-    return jsonError("暫時無法讀取總覽，請稍後重試", 503);
+    return jsonError("暂时无法读取总览，请稍后重试 · Could not load the overview; try again later", 503);
   }
 }

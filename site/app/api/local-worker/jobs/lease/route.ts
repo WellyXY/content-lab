@@ -8,7 +8,7 @@ export async function POST(request: Request) {
   const rejected = requireWorker(request);
   if (rejected) return rejected;
   let body: z.infer<typeof schema>;
-  try { body = schema.parse(await request.json()); } catch (error) { return jsonError("lease 請求格式不正確", 400, error instanceof z.ZodError ? error.flatten() : undefined); }
+  try { body = schema.parse(await request.json()); } catch (error) { return jsonError("lease 请求格式不正确 · Invalid lease request", 400, error instanceof z.ZodError ? error.flatten() : undefined); }
 
   try {
     const db = getD1();
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     return Response.json({ jobs });
   } catch (error) {
     console.error("job lease failed", error);
-    return jsonError("無法取得工作", 503);
+    return jsonError("无法获取任务 · Could not lease jobs", 503);
   }
 }
 

@@ -8,7 +8,7 @@ export async function POST(request: Request) {
   const rejected = requireWorker(request);
   if (rejected) return rejected;
   let body: z.infer<typeof schema>;
-  try { body = schema.parse(await request.json()); } catch { return jsonError("heartbeat 格式不正確", 400); }
+  try { body = schema.parse(await request.json()); } catch { return jsonError("heartbeat 格式不正确 · Invalid heartbeat", 400); }
   const now = new Date().toISOString();
   try {
     await getD1().prepare(`INSERT INTO workers (id, version, status, queue_depth, last_seen_at, details_json) VALUES (?, ?, 'online', ?, ?, ?)
@@ -17,6 +17,6 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, serverTime: now });
   } catch (error) {
     console.error("worker heartbeat failed", error);
-    return jsonError("heartbeat 寫入失敗", 503);
+    return jsonError("heartbeat 写入失败 · Heartbeat write failed", 503);
   }
 }
