@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { Lightbulb, ShieldAlert, Sparkles, Target } from "lucide-react";
 
@@ -19,37 +20,47 @@ const ROLE_LABELS: Record<ScriptSegment["role"], [string, string]> = {
   payoff: ["爆点", "Payoff"], cta: ["行动号召", "CTA"], other: ["其他", "Other"],
 };
 
-/** Bind-time assessment against the market's viral-content playbook. */
+/** Bind-time assessment against the market's viral-content playbook, laid out for a full-width row. */
 export function AssessmentCard({ prediction, market }: { prediction: Prediction | undefined; market: string }) {
   const { t, pick } = useLocale();
+  const [expanded, setExpanded] = useState(false);
   const assessment = prediction?.assessment;
   const potential = assessment?.potential ? POTENTIAL[assessment.potential] : null;
   const reason = assessment ? pick(assessment, "potential_reason") || prediction?.rationale || "" : prediction?.rationale ?? "";
+  const long = reason.length > 160;
+  const columns = assessment?.potential ? [
+    { key: "matched", icon: Target, title: t("已具备的爆款共性", "Patterns it already uses"), tone: "text-primary", items: (assessment.matched_patterns ?? []).map((item) => ({ id: item.pattern_id, text: pick(item, "evidence") })) },
+    { key: "missing", icon: Sparkles, title: t("缺少的共性", "Missing patterns"), tone: "text-amber-200", items: (assessment.missing_patterns ?? []).map((item) => ({ id: item.pattern_id, text: pick(item, "gap") })) },
+    { key: "anti", icon: ShieldAlert, title: t("踩到的反模式", "Anti-patterns it hits"), tone: "text-[#ff8a76]", items: (assessment.anti_patterns_hit ?? []).map((item) => ({ id: item.pattern_id, text: pick(item, "evidence") })) },
+  ] : [];
   return (
     <Card className="border-white/8 bg-card/80 shadow-none">
       <CardHeader className="border-b border-white/8 pb-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <CardTitle className="text-lg">{t("爆款评估", "Viral assessment")}</CardTitle>
-            <CardDescription className="mt-1">{assessment?.playbook
-              ? <>{t("对照", "Compared with")} <Link className="text-primary hover:underline" href={`/playbook?market=${encodeURIComponent(market)}`}>{t(`${market} 爆款共性文档 v${assessment.playbook.version}`, `${market} playbook v${assessment.playbook.version}`)}</Link></>
-              : t("对照该市场的爆款共性文档", "Compared with this market's viral playbook")}</CardDescription>
+            {potential ? <Badge className={`${potential.className} text-sm`} variant="outline">{t("爆款可能性", "Viral potential")} · {t(potential.label[0], potential.label[1])}</Badge> : null}
           </div>
-          {potential ? <Badge className={potential.className} variant="outline">{t("爆款可能性", "Viral potential")} · {t(potential.label[0], potential.label[1])}</Badge> : null}
+          <CardDescription>{assessment?.playbook
+            ? <>{t("对照", "Compared with")} <Link className="text-primary hover:underline" href={`/playbook?market=${encodeURIComponent(market)}`}>{t(`${market} 爆款共性文档 v${assessment.playbook.version}`, `${market} playbook v${assessment.playbook.version}`)}</Link></>
+            : t("对照该市场的爆款共性文档", "Compared with this market's viral playbook")}</CardDescription>
         </div>
       </CardHeader>
-      <CardContent className="space-y-5 pt-6">
-        {!prediction ? <p className="py-8 text-center text-sm text-muted-foreground">{t("等待 Agent 完成分析后评估。", "Waiting for the Agent to finish the analysis.")}</p>
+      <CardContent className="space-y-6 pt-5">
+        {!prediction ? <p className="py-6 text-center text-sm text-muted-foreground">{t("等待 Agent 完成分析后评估。", "Waiting for the Agent to finish the analysis.")}</p>
           : !assessment?.potential ? <p className="text-sm leading-6 text-muted-foreground">{reason || t("尚未评估。", "Not assessed yet.")}</p>
           : <>
-            <p className="text-sm leading-7 text-foreground/90">{reason}</p>
-            {assessment.matched_patterns?.length ? <PatternList icon={Target} title={t("已具备的爆款共性", "Patterns it already uses")} tone="text-primary" items={assessment.matched_patterns.map((item) => ({ id: item.pattern_id, text: pick(item, "evidence") }))} /> : null}
-            {assessment.missing_patterns?.length ? <PatternList icon={Sparkles} title={t("缺少的共性", "Missing patterns")} tone="text-amber-200" items={assessment.missing_patterns.map((item) => ({ id: item.pattern_id, text: pick(item, "gap") }))} /> : null}
-            {assessment.anti_patterns_hit?.length ? <PatternList icon={ShieldAlert} title={t("踩到的反模式", "Anti-patterns it hits")} tone="text-[#ff8a76]" items={assessment.anti_patterns_hit.map((item) => ({ id: item.pattern_id, text: pick(item, "evidence") }))} /> : null}
+            <div>
+              <p className={`max-w-4xl text-sm leading-7 text-foreground/90 ${long && !expanded ? "line-clamp-3" : ""}`}>{reason}</p>
+              {long ? <button className="mt-1 text-xs text-primary hover:underline" onClick={() => setExpanded((value) => !value)} type="button">{expanded ? t("收起", "Show less") : t("展开全文", "Show more")}</button> : null}
+            </div>
+            <div className="grid gap-4 lg:grid-cols-3">
+              {columns.map((column) => <PatternList icon={column.icon} items={column.items} key={column.key} title={column.title} tone={column.tone} empty={t("无", "None")} />)}
+            </div>
             {assessment.suggestions?.length ? <div>
               <p className="flex items-center gap-1.5 text-sm font-medium"><Lightbulb className="size-4 text-cyan-200" />{t("修改建议", "Suggested changes")}</p>
-              <ol className="mt-3 space-y-3">{[...assessment.suggestions].sort((a, b) => a.priority - b.priority).map((item, index) => <li className="rounded-lg border border-white/8 bg-white/[0.025] p-3" key={index}>
-                <div className="flex items-start gap-2"><span className="mt-0.5 shrink-0 font-mono text-[11px] text-cyan-200">P{item.priority}</span><div className="min-w-0"><p className="text-sm leading-6">{pick(item, "change")}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{pick(item, "reason")}{item.pattern_ids.length ? ` · ${t("依据", "Based on")} ${item.pattern_ids.join(", ")}` : ""}</p></div></div>
+              <ol className="mt-3 grid gap-3 lg:grid-cols-2">{[...assessment.suggestions].sort((a, b) => a.priority - b.priority).map((item, index) => <li className="rounded-lg border border-white/8 bg-white/[0.025] p-3" key={index}>
+                <div className="flex items-start gap-2"><span className="mt-0.5 shrink-0 rounded bg-cyan-300/10 px-1.5 font-mono text-[11px] text-cyan-200">P{item.priority}</span><div className="min-w-0"><p className="text-sm leading-6">{pick(item, "change")}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{pick(item, "reason")}{item.pattern_ids.length ? ` · ${t("依据", "Based on")} ${item.pattern_ids.join(", ")}` : ""}</p></div></div>
               </li>)}</ol>
             </div> : null}
             {assessment.inSample ? <p className="text-xs text-muted-foreground">{t("这条帖子本身是文档样本之一，评估只看内容，不以它自己的播放量为依据。", "This post is part of the playbook sample; the assessment judges its content, not its own view count.")}</p> : null}
@@ -59,10 +70,10 @@ export function AssessmentCard({ prediction, market }: { prediction: Prediction 
   );
 }
 
-function PatternList({ icon: Icon, title, tone, items }: { icon: typeof Target; title: string; tone: string; items: Array<{ id: string; text: string }> }) {
-  return <div>
-    <p className="flex items-center gap-1.5 text-sm font-medium"><Icon className={`size-4 ${tone}`} />{title}</p>
-    <ul className="mt-2 space-y-2">{items.map((item, index) => <li className="flex gap-2 text-sm leading-6 text-muted-foreground" key={index}><span className={`shrink-0 font-mono text-xs leading-6 ${tone}`}>{item.id}</span><span>{item.text}</span></li>)}</ul>
+function PatternList({ icon: Icon, title, tone, items, empty }: { icon: typeof Target; title: string; tone: string; items: Array<{ id: string; text: string }>; empty: string }) {
+  return <div className="rounded-lg border border-white/8 bg-white/[0.02] p-4">
+    <p className="flex items-center gap-1.5 text-sm font-medium"><Icon className={`size-4 ${tone}`} />{title}<span className="ml-auto font-mono text-xs text-muted-foreground">{items.length}</span></p>
+    {items.length ? <ul className="mt-3 space-y-2.5">{items.map((item, index) => <li className="flex gap-2 text-sm leading-6 text-muted-foreground" key={index}><span className={`shrink-0 font-mono text-xs leading-6 ${tone}`}>{item.id}</span><span>{item.text}</span></li>)}</ul> : <p className="mt-3 text-sm text-muted-foreground">{empty}</p>}
   </div>;
 }
 

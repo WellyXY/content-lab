@@ -25,6 +25,7 @@ export default function PostDetailPage() {
   const params = useParams<{ id: string }>();
   const [data, setData] = useState<PostDetailData | null>(null);
   const [playbackFailed, setPlaybackFailed] = useState(false);
+  const [showEmbed, setShowEmbed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
@@ -96,7 +97,10 @@ export default function PostDetailPage() {
 
       <Card className="mb-4 border-white/8 bg-card/80 shadow-none">
         <CardHeader><CardTitle className="text-lg">{t("原始内容", "Original post")}</CardTitle><CardDescription>{t("来自 TikTok 的真实帖子；平台限制播放时可打开原始链接。", "The real TikTok post; open the original link if playback is blocked.")}</CardDescription></CardHeader>
-        <CardContent>{post.postType === "video" && post.mediaUrl && !playbackFailed ? <video className="mx-auto max-h-[650px] w-full max-w-[430px] rounded-lg bg-black" controls playsInline preload="metadata" poster={post.thumbnailUrl ?? undefined} src={post.mediaUrl} onError={() => setPlaybackFailed(true)} aria-label={t("原始视频", "Original video")} /> : videoId ? <iframe className="mx-auto h-[650px] w-full max-w-[370px] rounded-lg border-0 bg-black" src={`https://www.tiktok.com/player/v1/${videoId}`} title={t("TikTok 原始内容", "Original TikTok post")} allow="fullscreen; autoplay; encrypted-media" allowFullScreen loading="lazy" /> : <a className="text-primary underline" href={post.url} target="_blank" rel="noreferrer">{t("在 TikTok 打开原始内容", "Open the original on TikTok")}</a>}</CardContent>
+        <CardContent>{post.postType === "video" && post.mediaUrl && !playbackFailed ? <video className="mx-auto max-h-[650px] w-full max-w-[430px] rounded-lg bg-black" controls playsInline preload="metadata" poster={post.thumbnailUrl ?? undefined} src={post.mediaUrl} onError={() => setPlaybackFailed(true)} aria-label={t("原始视频", "Original video")} /> : videoId ? (showEmbed
+          ? <iframe className="mx-auto h-[650px] w-full max-w-[370px] rounded-lg border-0 bg-black" src={`https://www.tiktok.com/player/v1/${videoId}`} title={t("TikTok 原始内容", "Original TikTok post")} allow="fullscreen; encrypted-media" allowFullScreen />
+          // The TikTok embed grabs focus and scrolls the page when it loads, so it only loads on request.
+          : <button className="relative mx-auto grid h-[420px] w-full max-w-[260px] place-items-center overflow-hidden rounded-lg border border-white/10 bg-black" onClick={() => setShowEmbed(true)} type="button">{post.thumbnailUrl ? <img alt="" className="absolute inset-0 h-full w-full object-cover opacity-70" src={post.thumbnailUrl} /> : null}<span className="relative flex items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-sm"><Play className="size-4" />{t("加载 TikTok 播放器", "Load the TikTok player")}</span></button>) : <a className="text-primary underline" href={post.url} target="_blank" rel="noreferrer">{t("在 TikTok 打开原始内容", "Open the original on TikTok")}</a>}</CardContent>
       </Card>
       <section aria-label={t("帖子指标", "Post metrics")} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <MiniMetric icon={Play} label={t("累计 VV", "Views")} value={compactNumber(post.lastCapturedAt ? post.views : null)} />
@@ -106,7 +110,7 @@ export default function PostDetailPage() {
         <MiniMetric icon={Sparkles} label={t("互动率", "Engagement")} value={post.lastCapturedAt ? `${engagement.toFixed(2)}%` : "—"} />
       </section>
 
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(330px,.65fr)]">
+      <section className="mt-4 grid items-start gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,.55fr)]">
         <Card className="border-white/8 bg-card/80 shadow-none">
           <CardHeader className="border-b border-white/8 pb-5">
             <div className="flex flex-wrap items-start justify-between gap-3"><div><CardTitle className="text-lg">{t("小时播放曲线", "Hourly views")}</CardTitle><CardDescription className="mt-1">{t("断点代表缺失，跨缺口的增量标为 interpolated", "Gaps are missing hours; deltas across a gap are marked interpolated")}</CardDescription></div><Badge className="border-cyan-300/15 bg-cyan-300/8 text-cyan-200" variant="outline">24h +{compactNumber(post.delta24h)}</Badge></div>
@@ -126,10 +130,12 @@ export default function PostDetailPage() {
           </CardContent>
         </Card>
 
-        <AssessmentCard market={post.market} prediction={prediction} />
+        <ComputedFeaturesCard computed={data.features?.computed ?? {}} />
       </section>
 
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)]">
+      <div className="mt-4"><AssessmentCard market={post.market} prediction={prediction} /></div>
+
+      <section className="mt-4 grid items-start gap-4 xl:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)]">
         <Card className="border-white/8 bg-card/80 shadow-none">
           <CardHeader className="border-b border-white/8 pb-5"><CardTitle className="text-lg">{t("Agent 标签", "Agent tags")}</CardTitle><CardDescription>{t("分类词表", "Taxonomy")} {data.features?.taxonomyVersion ?? "v3"} · {t("固定分类", "closed set")}</CardDescription></CardHeader>
           <CardContent className="pt-6">
@@ -147,13 +153,11 @@ export default function PostDetailPage() {
         </Card>
       </section>
 
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,.55fr)]">
-        <Card className="border-white/8 bg-card/80 shadow-none">
+        <Card className="mt-4 border-white/8 bg-card/80 shadow-none">
           <CardHeader className="border-b border-white/8 pb-5"><CardTitle className="text-lg">{t("分段脚本", "Timed script")}</CardTitle><CardDescription>{post.postType === "photo" ? t("按图集顺序逐张拆解", "One beat per carousel image") : t("按时间拆解画面、字幕与台词；台词由本机 Whisper 转写", "Visuals, on-screen text and speech by time; speech transcribed locally by Whisper")}</CardDescription></CardHeader>
           <CardContent className="pt-6"><ScriptTimeline frames={frames} script={data.features?.script ?? []} /></CardContent>
         </Card>
-        <ComputedFeaturesCard computed={data.features?.computed ?? {}} />
-      </section>
+
 
       <Card className="mt-4 border-white/8 bg-card/80 shadow-none">
         <CardHeader className="border-b border-white/8 pb-5"><CardTitle className="text-lg">{t("关键帧", "Keyframes")}</CardTitle><CardDescription>{post.postType === "photo" ? t("图集的全部图片，交给 Claude 分析", "Every carousel image, analyzed by Claude") : t("本机 ffmpeg 按画面切换抽帧，交给 Claude 分析", "Extracted at scene changes by local ffmpeg, analyzed by Claude")}</CardDescription></CardHeader>
