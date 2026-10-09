@@ -3,6 +3,7 @@ set -euo pipefail
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export SITE_SYNC_URL="https://content-lab-welly.biii38839.chatgpt.site"
+export SITE_PLAYBOOK_SYNC="1"
 export PUBLIC_BASE_URL="https://content-lab-welly.biii38839.chatgpt.site"
 export CONTENT_LAB_WORKER_ID="mac-welly-content-lab"
 
