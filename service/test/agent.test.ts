@@ -1,7 +1,11 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { addMemory, archiveMemory, memoriesFor, normalizeScope, ownerMemoryBlock } from "../src/agent/memory.js";
-import { resolvePost } from "../src/agent/tools.js";
+import { createAgentTools, resolvePost } from "../src/agent/tools.js";
 import { upsertPost } from "../src/collector.js";
 import { openDatabase } from "../src/db/database.js";
 import { feishuThreadKey, handleContentLabFeishuMessage, THINKING_TEXT } from "../src/feishu/bot.js";
@@ -83,5 +87,36 @@ describe("owner memory", () => {
     expect(resolvePost(db, "https://www.tiktok.com/@a/video/7412345678901234567?lang=en")).toBe(post.id);
     expect(resolvePost(db, "nothing-like-this")).toBeNull();
     db.close();
+  });
+});
+
+describe("binding posts from the agent", () => {
+  it("queues new links once, reports tracked and invalid ones, and respects the daily quota", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "content-lab-agent-"));
+    const dbPath = join(dir, "test.sqlite");
+    const db = openDatabase(dbPath);
+    try {
+      upsertPost(db, { source: "tikwm", metrics: null, metadata: { videoId: "7412345678901234567", url: "https://www.tiktok.com/@a/video/7412345678901234567", authorId: "u1", authorHandle: "a", caption: "", type: "video", durationS: 10, musicTitle: null, coverUrl: null, mediaUrl: null, imageUrls: [], publishedAt: null } }, { market: "TR", projectTag: null, boundBy: null });
+      const tools = createAgentTools({ db, dbPath, channel: "feishu", author: "ou_owner", threadKey: "t", bindLimits: { dailyNewPosts: 2, maxActivePosts: 100 } });
+      const bind = tools.tools.find((item) => item.name === "bind_posts")!;
+      const result = await bind.handler({ market: "VN", urls: [
+        "https://www.tiktok.com/@b/video/7499999999999999999?is_from_webapp=1",
+        "https://www.tiktok.com/@b/video/7499999999999999999",
+        "https://www.tiktok.com/@a/video/7412345678901234567",
+        "https://example.com/video/1",
+      ] }, {});
+      const body = JSON.parse((result.content[0] as { text: string }).text) as { queued: Array<{ url: string }>; alreadyTracked: unknown[]; invalid: unknown[] };
+      expect(body.queued.map((job) => job.url)).toEqual(["https://www.tiktok.com/@b/video/7499999999999999999"]);
+      expect(body.alreadyTracked).toHaveLength(1);
+      expect(body.invalid).toHaveLength(1);
+      const job = db.prepare("SELECT payload_json FROM jobs WHERE kind='ingest'").get() as { payload_json: string };
+      expect(JSON.parse(job.payload_json)).toMatchObject({ market: "VN", boundBy: "agent:feishu" });
+      const over = await bind.handler({ market: "VN", urls: ["https://www.tiktok.com/@c/video/7488888888888888888", "https://www.tiktok.com/@d/video/7477777777777777777"] }, {});
+      expect(over.isError).toBe(true);
+      tools.close();
+    } finally {
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

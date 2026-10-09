@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 
@@ -7,12 +7,12 @@ import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
 
+import { bindPosts, consumeBudget } from "./bind.js";
 import type { ServiceConfig } from "./config.js";
 import { syncPostReadModel } from "./collector.js";
 import type { ContentLabDatabase } from "./db/database.js";
 import { normalizeTikTokUrl } from "./domain/tiktok-url.js";
-import { enqueueJob, retryJob } from "./jobs/queue.js";
-import { putSyncEvent } from "./sync/outbox.js";
+import { retryJob } from "./jobs/queue.js";
 
 export type PublicAppConfig = Pick<ServiceConfig, "bindHourlyPerIp" | "dailyNewPosts" | "maxActivePosts" | "bindSecret" | "turnstileSecret">
   & Partial<Pick<ServiceConfig, "analysisRetryHourlyPerIp" | "mediaDir">>;
@@ -25,29 +25,6 @@ const bindBody = z.object({
   bindSecret: z.string().optional(),
   turnstileToken: z.string().optional(),
 }).strict();
-
-function consumeBudget(db: ContentLabDatabase, key: string, units: number, limit: number, windowMs: number, now: Date): boolean {
-  const existing = db.prepare("SELECT window_started_at, count FROM rate_limits WHERE key=?").get(key) as { window_started_at: string; count: number } | undefined;
-  const expired = !existing || Date.parse(existing.window_started_at) + windowMs <= now.getTime();
-  const count = expired ? 0 : existing.count;
-  if (count + units > limit) return false;
-  db.prepare(`
-    INSERT INTO rate_limits(key, window_started_at, count, updated_at) VALUES (?, ?, ?, ?)
-    ON CONFLICT(key) DO UPDATE SET window_started_at=excluded.window_started_at, count=excluded.count, updated_at=excluded.updated_at
-  `).run(key, expired ? now.toISOString() : existing.window_started_at, count + units, now.toISOString());
-  return true;
-}
-
-function recordQuotaAlert(db: ContentLabDatabase, kind: string, payload: unknown, now: Date): void {
-  const id = randomUUID();
-  const bucket = now.toISOString().slice(0, 13);
-  const firedAt = now.toISOString();
-  const result = db.prepare(`
-    INSERT OR IGNORE INTO alerts(id, post_id, rule, dedupe_key, fired_at, payload_json, next_delivery_at)
-    VALUES (?, NULL, 'ops_quota', ?, ?, ?, ?)
-  `).run(id, `ops:quota:${kind}:${bucket}`, firedAt, JSON.stringify(payload), firedAt);
-  if (result.changes > 0) putSyncEvent(db, "alert", id, { id, postId: null, rule: "ops_quota", firedAt, payload, deliveredAt: null }, firedAt);
-}
 
 async function verifyTurnstile(secret: string, token: string | undefined, ip: string): Promise<boolean> {
   if (!token) return false;
@@ -124,37 +101,15 @@ export function createApp(input: { db: ContentLabDatabase; config: PublicAppConf
     } catch (error) {
       return c.json({ error: "invalid_tiktok_url", message: error instanceof Error ? error.message : String(error) }, 400);
     }
-    const now = new Date();
-    db.exec("BEGIN IMMEDIATE");
-    try {
-      if (!consumeBudget(db, `bind-ip:${ip}`, urls.length, config.bindHourlyPerIp, 60 * 60_000, now)) {
-        db.exec("ROLLBACK");
-        c.header("retry-after", "3600");
-        return c.json({ error: "rate_limited", limit: config.bindHourlyPerIp }, 429);
-      }
-      if (!consumeBudget(db, "bind-global", urls.length, config.dailyNewPosts, 24 * 60 * 60_000, now)) {
-        db.exec("ROLLBACK");
-        recordQuotaAlert(db, "daily", { requested: urls.length, limit: config.dailyNewPosts }, now);
-        return c.json({ error: "daily_quota_exceeded", limit: config.dailyNewPosts }, 429);
-      }
-      const active = (db.prepare("SELECT COUNT(*) AS count FROM posts WHERE tracking_state != 'stopped'").get() as { count: number }).count;
-      const pending = (db.prepare("SELECT COUNT(*) AS count FROM jobs WHERE kind='ingest' AND status IN ('queued','running','failed')").get() as { count: number }).count;
-      if (active + pending + urls.length > config.maxActivePosts) {
-        db.exec("ROLLBACK");
-        recordQuotaAlert(db, "active", { active, pending, requested: urls.length, limit: config.maxActivePosts }, now);
-        return c.json({ error: "active_post_quota_exceeded", limit: config.maxActivePosts }, 409);
-      }
-      const jobs = urls.map((url) => enqueueJob(db, {
-        kind: "ingest",
-        payload: { url, market: parsed.data.market ?? null, projectTag: parsed.data.projectTag ?? null, boundBy: parsed.data.boundBy ?? ip },
-        idempotencyKey: `ingest:${createHash("sha256").update(url).digest("hex")}`,
-      }));
-      db.exec("COMMIT");
-      return c.json({ accepted: urls.length, jobs: jobs.map((job) => ({ id: job.id, status: job.status, url: (job.payload as { url?: string }).url })) }, 202);
-    } catch (error) {
-      db.exec("ROLLBACK");
-      throw error;
+    const result = bindPosts(db, config, {
+      urls, market: parsed.data.market ?? null, projectTag: parsed.data.projectTag ?? null, boundBy: parsed.data.boundBy ?? ip,
+      callerBudget: { key: `bind-ip:${ip}`, limit: config.bindHourlyPerIp, windowMs: 60 * 60_000 },
+    });
+    if (!result.ok) {
+      if (result.error === "rate_limited") c.header("retry-after", "3600");
+      return c.json({ error: result.error, limit: result.limit }, result.error === "active_post_quota_exceeded" ? 409 : 429);
     }
+    return c.json({ accepted: urls.length, jobs: result.jobs, alreadyTracked: result.alreadyTracked }, 202);
   };
   app.post("/api/posts/bind", handleBind);
   app.post("/api/posts", handleBind);

@@ -4,7 +4,9 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
 import { latestPlaybook, renderPlaybookMarkdown } from "../analyzer/playbook.js";
+import { bindPosts, type BindLimits } from "../bind.js";
 import type { ContentLabDatabase } from "../db/database.js";
+import { normalizeTikTokUrl } from "../domain/tiktok-url.js";
 import { enqueueJob } from "../jobs/queue.js";
 import { addMemory, archiveMemory, listMemories } from "./memory.js";
 
@@ -23,6 +25,8 @@ export interface AgentToolContext {
   channel: string;
   author: string | null;
   threadKey: string;
+  /** The same daily and active-post quotas the website's bind form uses. */
+  bindLimits: BindLimits;
   /** Called after every tool call, for the turn log. */
   onTool?: (name: string) => void;
 }
@@ -178,6 +182,24 @@ tags_json: {dimension: {value, confidence}}; use json_extract.`, { sql: z.string
       return archiveMemory(db, id) ? ok({ archived: id }) : fail("没有这条记忆，或它已经删除。");
     }),
 
+    tool("bind_posts", "Start tracking new TikTok posts (video or photo URLs, short links allowed) for one market, exactly like the website's bind form: they are fetched, tracked hourly, analyzed and assessed automatically. Only bind URLs the owner sent in this conversation; ask for the market when it is unclear.", {
+      urls: z.array(z.string().min(8).max(500)).min(1).max(20), market: MARKET, projectTag: z.string().trim().max(100).optional(),
+    }, async ({ urls, market, projectTag }) => {
+      used("bind_posts");
+      const invalid: Array<{ url: string; reason: string }> = [];
+      const normalized: string[] = [];
+      for (const url of urls) {
+        try { normalized.push(normalizeTikTokUrl(url)); } catch (error) { invalid.push({ url, reason: error instanceof Error ? error.message : String(error) }); }
+      }
+      if (normalized.length === 0) return fail(`没有可绑定的 TikTok 链接：${JSON.stringify(invalid)}`);
+      const result = bindPosts(db, context.bindLimits, { urls: normalized, market, projectTag: projectTag || null, boundBy: `agent:${context.channel}` });
+      if (!result.ok) return fail(result.error === "daily_quota_exceeded" ? `今日新增帖子已达 ${result.limit} 条上限。` : `正在追踪的帖子已达 ${result.limit} 条上限。`);
+      return ok({
+        queued: result.jobs, alreadyTracked: result.alreadyTracked, invalid,
+        note: "新帖子会在几分钟内抓取并开始每小时追踪，之后自动分析和评估（约 10–30 分钟）。已在追踪的帖子不会重复绑定，也不会改变它们的市场。",
+      });
+    }),
+
     tool("queue_reanalysis", "Re-run the full analysis (frames, transcript, tags, timed script, assessment) for one post, e.g. after a memory changes how it should be tagged.", { post: z.string().min(4) }, async ({ post }) => {
       used("queue_reanalysis");
       const id = resolvePost(db, post);
@@ -202,5 +224,5 @@ tags_json: {dimension: {value, confidence}}; use json_extract.`, { sql: z.string
   ];
 
   const server = createSdkMcpServer({ name: AGENT_SERVER, version: "1.0.0", tools });
-  return { server, toolNames: tools.map((item) => `mcp__${AGENT_SERVER}__${item.name}`), close: () => readOnly.close() };
+  return { server, tools, toolNames: tools.map((item) => `mcp__${AGENT_SERVER}__${item.name}`), close: () => readOnly.close() };
 }
