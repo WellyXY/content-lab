@@ -28,6 +28,7 @@ export const posts = sqliteTable(
     source: text("source"),
     lastCapturedAt: text("last_captured_at"),
     checkpointsJson: text("checkpoints_json").notNull().default("[]"),
+    adsJson: text("ads_json"),
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [

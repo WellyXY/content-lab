@@ -8,6 +8,7 @@ import { Line, LineChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
 import { AssessmentCard, CheckpointsCard, ComputedFeaturesCard, ScriptTimeline } from "@/components/content-lab/analysis-panels";
+import { PostAdsCard } from "@/components/content-lab/ads-panels";
 import { RecreateButton, RecreatePanel } from "@/components/content-lab/recreate-panel";
 import { RelativeTime } from "@/components/content-lab/relative-time";
 import { useLocale } from "@/lib/i18n";
@@ -150,6 +151,7 @@ export default function PostDetailPage() {
 
       <div className="mt-4"><CheckpointsCard checkpoints={post.checkpoints ?? []} /></div>
 
+      <div className="mt-4"><PostAdsCard ads={post.ads} /></div>
       <div className="mt-4"><AssessmentCard market={post.market} prediction={prediction} /></div>
       {data.recreations?.length ? <div className="mt-4"><RecreatePanel recreations={data.recreations} /></div> : null}
 

@@ -24,12 +24,17 @@ export const postReadModel = (db: ContentLabDatabase, id: string): Record<string
       p.cover_url AS coverUrl, p.media_url AS mediaUrl, p.published_at AS publishedAt, p.bound_at AS boundAt,
       p.bound_by AS boundBy,
       p.tracking_state AS trackingState, p.next_capture_at AS nextCaptureAt,
-      p.features_state AS featuresState, p.checkpoints_json AS checkpointsJson, c.handle AS creator
+      p.features_state AS featuresState, p.checkpoints_json AS checkpointsJson, p.ads_json AS adsJson, c.handle AS creator
     FROM posts p LEFT JOIN creators c ON c.id=p.creator_id WHERE p.id=?
   `).get(id) as Record<string, unknown> | undefined;
   if (!row) throw new Error(`Unknown post ${id}`);
-  const { checkpointsJson, ...model } = row;
-  return { ...model, checkpoints: typeof checkpointsJson === "string" ? JSON.parse(checkpointsJson) as unknown : [] };
+  const { checkpointsJson, adsJson, ...model } = row;
+  return {
+    ...model,
+    checkpoints: typeof checkpointsJson === "string" ? JSON.parse(checkpointsJson) as unknown : [],
+    // Spark Ads delivery totals, refreshed by the ads sync; null when the post was never promoted.
+    ads: typeof adsJson === "string" ? JSON.parse(adsJson) as unknown : null,
+  };
 };
 
 /** Recompute the early-performance checkpoints from every successful snapshot of the post. */

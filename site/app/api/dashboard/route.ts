@@ -1,4 +1,5 @@
 import { type DashboardData } from "@/lib/content-lab";
+import { marketAdsSql, rowToMarketAds } from "@/lib/ads";
 import { getD1, integer, jsonError, rowToAlert, rowToPost } from "@/lib/server/content-db";
 
 export const dynamic = "force-dynamic";
@@ -6,7 +7,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const db = getD1();
-    const [totalsResult, previousResult, jobsResult, captureResult, workerResult, trendResult, moversResult, alertsResult, marketsResult] = await db.batch([
+    const [totalsResult, previousResult, jobsResult, captureResult, workerResult, trendResult, moversResult, alertsResult, marketsResult, adsResult, topAdsResult] = await db.batch([
       db.prepare(`SELECT
         COALESCE(SUM(CASE WHEN captured_at >= datetime('now', '-7 days') AND ok = 1 THEN MAX(views_delta, 0) ELSE 0 END), 0) AS views_7d,
         (SELECT COUNT(*) FROM posts WHERE tracking_state IN ('active', 'slow', 'daily')) AS active_posts,
@@ -22,6 +23,8 @@ export async function GET() {
       db.prepare("SELECT * FROM posts ORDER BY delta_24h DESC, views DESC LIMIT 5"),
       db.prepare("SELECT * FROM alerts ORDER BY fired_at DESC LIMIT 5"),
       db.prepare("SELECT market, COALESCE(SUM(delta_24h), 0) AS views, COUNT(*) AS posts FROM posts WHERE tracking_state != 'stopped' GROUP BY market ORDER BY views DESC"),
+      db.prepare(marketAdsSql),
+      db.prepare("SELECT * FROM posts WHERE json_extract(ads_json, '$.last7d.registrations') > 0 ORDER BY json_extract(ads_json, '$.last7d.registrations') DESC LIMIT 5"),
     ]);
 
     const worker = workerResult.results[0] as Record<string, unknown> | undefined;
@@ -51,6 +54,8 @@ export async function GET() {
       movers: moversResult.results.map((row) => rowToPost(row as Record<string, unknown>)),
       recentAlerts: alertsResult.results.map((row) => rowToAlert(row as Record<string, unknown>)),
       marketBreakdown: marketsResult.results.map((row) => ({ market: String((row as Record<string, unknown>).market), views: integer((row as Record<string, unknown>).views), posts: integer((row as Record<string, unknown>).posts) })),
+      adsByMarket: adsResult.results.map((row) => rowToMarketAds(row as Record<string, unknown>)),
+      topRegistrationPosts: topAdsResult.results.map((row) => rowToPost(row as Record<string, unknown>)),
     };
     return Response.json(response, { headers: { "cache-control": "no-store" } });
   } catch (error) {

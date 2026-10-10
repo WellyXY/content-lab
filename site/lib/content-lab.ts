@@ -1,3 +1,5 @@
+import type { MarketAds } from "@/lib/ads";
+
 /** Markets a post can be bound to; the label shows the timezone used for day boundaries. */
 export const MARKETS = [
   { code: "ID", label: "印尼", labelEn: "Indonesia", timezone: "UTC+7" },
@@ -5,6 +7,7 @@ export const MARKETS = [
   { code: "TR", label: "土耳其", labelEn: "Türkiye", timezone: "UTC+3" },
   { code: "GCC", label: "海湾地区", labelEn: "GCC", timezone: "UTC+3" },
   { code: "TH", label: "泰国", labelEn: "Thailand", timezone: "UTC+7" },
+  { code: "IQ", label: "伊拉克", labelEn: "Iraq", timezone: "UTC+3" },
 ] as const;
 export type MarketCode = (typeof MARKETS)[number]["code"];
 export const MARKET_CODES = MARKETS.map((market) => market.code) as [MarketCode, ...MarketCode[]];
@@ -14,6 +17,18 @@ export type WorkerStatus = {
   connected: boolean;
   lastSeenAt: string | null;
   queueDepth: number;
+};
+
+export type AdsTotals = { spend: number; impressions: number; clicks: number; installs: number; registrations: number; cpr: number | null; cpi: number | null; cpm: number | null; ctr: number | null };
+/** Spark Ads delivery summed over every ad that promotes the post (USD); null when never promoted. */
+export type PostAds = {
+  status: "active" | "inactive";
+  adCount: number; accounts: number;
+  lifetime: AdsTotals; last7d: AdsTotals; prev7d: AdsTotals;
+  daily: Array<{ date: string; spend: number; registrations: number; installs: number }>;
+  topAds: Array<{ adId: string; adName: string | null; campaignName: string | null; advertiserName: string | null } & AdsTotals>;
+  refreshedAt: string | null;
+  currencyExcluded: number;
 };
 
 export type PostSummary = {
@@ -45,6 +60,7 @@ export type PostSummary = {
   potential?: "high" | "medium" | "low" | null;
   hookType?: string | null;
   topic?: string | null;
+  ads?: PostAds | null;
 };
 
 export type Checkpoint = {
@@ -190,6 +206,10 @@ export type DashboardData = {
   movers: PostSummary[];
   recentAlerts: AlertItem[];
   marketBreakdown: Array<{ market: string; views: number; posts: number }>;
+  /** Spark Ads delivery per market, last 7 days vs the 7 before (absent on an older worker). */
+  adsByMarket?: MarketAds[];
+  /** Posts with the most registrations in the last 7 days. */
+  topRegistrationPosts?: PostSummary[];
 };
 
 export type Recreation = {

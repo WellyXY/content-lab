@@ -33,6 +33,8 @@ export interface ServiceConfig {
   sitePlaybookSync: boolean;
   /** Send post_deleted events; enable after the Site release that accepts them. */
   siteDeleteSync: boolean;
+  /** Model for the TikTok ads proxy sessions; each runs one planned API call. */
+  adsModel: string;
   codexModel: string | null;
   codexConcurrency: number;
   tikwmMinIntervalMs: number;
@@ -88,6 +90,7 @@ export function loadConfig(): ServiceConfig {
     whisperModel: optional("WHISPER_MODEL") === "off" ? null : optional("WHISPER_MODEL") ?? "small",
     sitePlaybookSync: optional("SITE_PLAYBOOK_SYNC") === "1",
     siteDeleteSync: optional("SITE_DELETE_SYNC") === "1",
+    adsModel: optional("ADS_MODEL") ?? "claude-haiku-5-5",
     brandGlossaryPath: resolve(process.env.CONTENT_LAB_BRAND_GLOSSARY || resolve(repoDir, "docs/brand-glossary.json")),
     codexModel: optional("CODEX_MODEL"),
     codexConcurrency: integer("CODEX_CONCURRENCY", 1, 1),

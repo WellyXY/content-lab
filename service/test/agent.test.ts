@@ -178,3 +178,56 @@ describe("owner notifications", () => {
     expect(ownerMessageRequest([], "x")).toBeNull();
   });
 });
+
+describe("ads in agent tools", () => {
+  it("lists posts by spend with delivery totals, shows them in get_post, and lets only the owner refresh", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "content-lab-ads-agent-"));
+    const dbPath = join(dir, "test.sqlite");
+    const db = openDatabase(dbPath);
+    try {
+      const meta = (videoId: string) => ({ videoId, url: `https://www.tiktok.com/@a/video/${videoId}`, authorId: "u1", authorHandle: "a", caption: "", type: "video" as const, durationS: 10, musicTitle: null, coverUrl: null, mediaUrl: null, imageUrls: [], publishedAt: null });
+      const promoted = upsertPost(db, { source: "tikwm", metrics: null, metadata: meta("7400000000000000001") }, { market: "VN", projectTag: null, boundBy: null });
+      upsertPost(db, { source: "tikwm", metrics: null, metadata: meta("7400000000000000002") }, { market: "VN", projectTag: null, boundBy: null });
+      db.prepare("UPDATE posts SET ads_json=? WHERE id=?").run(JSON.stringify({ status: "active", lifetime: { spend: 120, registrations: 300, cpr: 0.4, cpi: 0.2, cpm: 3 }, last7d: { spend: 40, registrations: 100, installs: 200, impressions: 20000 }, prev7d: { spend: 20, registrations: 40, installs: 80, impressions: 10000 } }), promoted.id);
+      const limits = { dailyNewPosts: 10, maxActivePosts: 10 };
+      const owner = createAgentTools({ db, dbPath, channel: "feishu", author: "ou_owner", threadKey: "t", bindLimits: limits });
+      const member = createAgentTools({ db, dbPath, channel: "feishu", author: "ou_x", threadKey: "t", role: "member", bindLimits: limits });
+      const run = async (tools: typeof owner, name: string, input: Record<string, unknown>) => {
+        const result = await tools.tools.find((item) => item.name === name)!.handler(input as never, {});
+        return { text: (result.content[0] as { text: string }).text, isError: result.isError === true };
+      };
+      const listed = JSON.parse((await run(owner, "list_posts", { sort: "spend", limit: 5 })).text) as { posts: Array<{ id: string; spend: number | null; registrations: number | null }> };
+      expect(listed.posts[0]).toMatchObject({ id: promoted.id, spend: 120, registrations: 300 });
+      expect(listed.posts[1]?.spend).toBeNull();
+      expect(JSON.parse((await run(owner, "get_post", { post: promoted.id })).text).ads).toMatchObject({ status: "active" });
+      const overview = JSON.parse((await run(owner, "overview", {})).text) as { ads: Array<Record<string, unknown>> };
+      expect(overview.ads).toEqual([expect.objectContaining({ market: "VN", promotedPosts: 1, activePosts: 1, spend7d: 40, registrations7d: 100, spendPrev7d: 20, cpr7d: 0.4, cprPrev7d: 0.5 })]);
+      expect((await run(owner, "refresh_ads", {})).isError).toBe(false);
+      expect(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE kind='ads_sync'").get()).toEqual({ n: 1 });
+      expect(member.tools.map((item) => item.name)).not.toContain("refresh_ads");
+      owner.close(); member.close();
+    } finally {
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("IQ market", () => {
+  it("is a market everywhere: day boundaries, transcription languages, captions and binding", async () => {
+    const { MARKET_UTC_OFFSET_HOURS } = await import("../src/domain/features.js");
+    const { MARKET_LANGUAGES } = await import("../src/analyzer/transcribe.js");
+    const { buildRecreateBrief } = await import("../src/recreate/brief.js");
+    expect(MARKET_UTC_OFFSET_HOURS.IQ).toBe(3);
+    expect(MARKET_LANGUAGES.IQ).toContain("ar");
+    expect(buildRecreateBrief({ postId: "p", market: "IQ", durationS: 10, caption: null, transcript: null, script: [], assessment: null, playbookSummary: null, memories: "" })).toContain("Arabic (ar)");
+    const dir = mkdtempSync(join(tmpdir(), "content-lab-iq-"));
+    const dbPath = join(dir, "test.sqlite");
+    const db = openDatabase(dbPath);
+    const tools = createAgentTools({ db, dbPath, channel: "feishu", author: "ou_owner", threadKey: "t", bindLimits: { dailyNewPosts: 10, maxActivePosts: 10 } });
+    const bind = tools.tools.find((item) => item.name === "bind_posts")!;
+    const parsed = (bind.inputSchema as unknown as { market: { safeParse: (value: unknown) => { success: boolean } } }).market.safeParse("IQ");
+    expect(parsed.success).toBe(true);
+    tools.close(); db.close(); rmSync(dir, { recursive: true, force: true });
+  });
+});

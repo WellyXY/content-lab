@@ -18,7 +18,7 @@ export const AGENT_DAILY_JOB_LIMIT = 30;
 type Text = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 const ok = (value: unknown): Text => ({ content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value) }] });
 const fail = (message: string): Text => ({ content: [{ type: "text", text: message }], isError: true });
-const MARKET = z.enum(["ID", "VN", "TR", "GCC", "TH"]).describe("Market code: ID Indonesia, VN Vietnam, TR Türkiye, GCC Gulf, TH Thailand");
+const MARKET = z.enum(["ID", "VN", "TR", "GCC", "TH", "IQ"]).describe("Market code: ID Indonesia, VN Vietnam, TR Türkiye, GCC Gulf, TH Thailand, IQ Iraq");
 
 export interface AgentToolContext {
   db: ContentLabDatabase;
@@ -61,6 +61,7 @@ export function postDetail(db: ContentLabDatabase, id: string): Record<string, u
     id, siteId: post.site_post_id, url: post.url, market: post.market, creator: post.creator, type: post.type,
     caption: post.caption, publishedAt: post.published_at, boundAt: post.bound_at, trackingState: post.tracking_state,
     latest, checkpoints: post.checkpoints_json ? JSON.parse(String(post.checkpoints_json)) : [],
+    ads: post.ads_json ? JSON.parse(String(post.ads_json)) : null,
     analysisVersion: features?.version ?? null, tags, computed: analysis.computed ?? null,
     hook: analysis.hook_text, hookZh: analysis.hook_translation_zh, formulaZh: analysis.formula_zh, summaryZh: analysis.summary_zh,
     script: Array.isArray(analysis.script_segments)
@@ -79,7 +80,9 @@ function agentJobsToday(db: ContentLabDatabase): number {
 }
 
 /** Tools that change the owner's memory or spend model quota. */
-export const OWNER_ONLY_TOOLS = new Set(["list_memories", "remember", "forget", "queue_reanalysis", "queue_reassessment", "queue_playbook"]);
+export const OWNER_ONLY_TOOLS = new Set(["list_memories", "remember", "forget", "queue_reanalysis", "queue_reassessment", "queue_playbook", "refresh_ads"]);
+/** Manual Spark Ads refreshes on top of the daily run. */
+export const ADS_REFRESHES_PER_DAY = 3;
 /** Tables members cannot read through run_sql: memory, chat logs, job payloads (website IPs) and operations state. */
 const PRIVATE_TABLES = new Set(["memories", "agent_turns", "agent_sessions", "jobs", "rate_limits", "sync_outbox", "alerts", "scheduler_state", "change_requests"]);
 
@@ -99,7 +102,7 @@ export function createAgentTools(context: AgentToolContext) {
   };
 
   const allTools = [
-    tool("overview", "Totals for every market or one: tracked posts, views gained in the last 7 days vs the 7 days before, viral-potential counts and the latest playbook version.", { market: MARKET.optional() }, async ({ market }) => {
+    tool("overview", "Totals for every market or one: tracked posts, views gained in the last 7 days vs the 7 days before, viral-potential counts, the latest playbook version, and Spark Ads delivery (spend, registrations, registration cost, CPI, CPM; last 7 days vs the 7 before).", { market: MARKET.optional() }, async ({ market }) => {
       used("overview");
       const now = Date.now();
       const since7 = new Date(now - 7 * 86_400_000).toISOString();
@@ -113,12 +116,26 @@ export function createAgentTools(context: AgentToolContext) {
         FROM post_hourly h JOIN posts p ON p.id=h.post_id ${filter} GROUP BY p.market`).all(since7, since14, since7, ...args);
       const potential = db.prepare(`SELECT p.market, ${POTENTIAL} AS band, COUNT(*) AS posts FROM posts p ${filter} GROUP BY 1, 2`).all(...args);
       const playbooks = db.prepare(`SELECT market, MAX(version) AS version FROM playbooks ${market ? "WHERE market=?" : ""} GROUP BY market`).all(...args);
-      return ok({ markets, viewsGained: gained, potential, playbooks, note: "viewsGained only counts hours the worker actually captured." });
+      // Spark Ads delivery per market: sums first, costs divided from the sums.
+      const ads = (db.prepare(`SELECT p.market, COUNT(*) AS promotedPosts,
+        SUM(json_extract(p.ads_json, '$.status')='active') AS activePosts,
+        SUM(json_extract(p.ads_json, '$.last7d.spend')) AS spend7d, SUM(json_extract(p.ads_json, '$.last7d.registrations')) AS registrations7d,
+        SUM(json_extract(p.ads_json, '$.last7d.installs')) AS installs7d, SUM(json_extract(p.ads_json, '$.last7d.impressions')) AS impressions7d,
+        SUM(json_extract(p.ads_json, '$.prev7d.spend')) AS spendPrev7d, SUM(json_extract(p.ads_json, '$.prev7d.registrations')) AS registrationsPrev7d
+        FROM posts p WHERE p.ads_json IS NOT NULL AND p.ads_json != 'null' ${market ? "AND p.market=?" : ""} GROUP BY p.market`).all(...args) as Array<Record<string, number | string>>)
+        .map((row) => ({
+          ...row,
+          cpr7d: Number(row.registrations7d) > 0 ? Number(row.spend7d) / Number(row.registrations7d) : null,
+          cprPrev7d: Number(row.registrationsPrev7d) > 0 ? Number(row.spendPrev7d) / Number(row.registrationsPrev7d) : null,
+          cpi7d: Number(row.installs7d) > 0 ? Number(row.spend7d) / Number(row.installs7d) : null,
+          cpm7d: Number(row.impressions7d) > 0 ? (Number(row.spend7d) / Number(row.impressions7d)) * 1000 : null,
+        }));
+      return ok({ markets, viewsGained: gained, potential, playbooks, ads, note: "viewsGained only counts hours the worker actually captured. ads covers Spark Ads of tracked posts only; spend is USD." });
     }),
 
-    tool("list_posts", "List posts with their latest views, 24h growth and viral potential. Filter by market, potential, creator or a tag (\"dimension=value\", e.g. \"hook_type=contrast\").", {
+    tool("list_posts", "List posts with their latest views, 24h growth, viral potential and Spark Ads delivery (lifetime spend, registrations, registration cost cpr, install cost cpi; null when never promoted). Filter by market, potential, creator or a tag (\"dimension=value\", e.g. \"hook_type=contrast\").", {
       market: MARKET.optional(), potential: z.enum(["high", "medium", "low"]).optional(), creator: z.string().optional(),
-      tag: z.string().regex(/^[a-z_]+=[a-z_]+$/).optional(), sort: z.enum(["views", "growth24h", "newest"]).default("views"), limit: z.number().int().min(1).max(30).default(10),
+      tag: z.string().regex(/^[a-z_]+=[a-z_]+$/).optional(), sort: z.enum(["views", "growth24h", "newest", "spend", "registrations", "cpr"]).default("views"), limit: z.number().int().min(1).max(30).default(10),
     }, async ({ market, potential, creator, tag, sort, limit }) => {
       used("list_posts");
       const where: string[] = [];
@@ -132,9 +149,13 @@ export function createAgentTools(context: AgentToolContext) {
           AND (json_extract(f.tags_json, '$.' || ? || '.value')=? OR EXISTS (SELECT 1 FROM json_each(json_extract(f.tags_json, '$.' || ? || '.value')) WHERE value=?)))`);
         args.push(dimension!, value!, dimension!, value!);
       }
-      const order = sort === "growth24h" ? "growth24h DESC" : sort === "newest" ? "p.published_at DESC" : "views DESC";
+      const order = sort === "growth24h" ? "growth24h DESC" : sort === "newest" ? "p.published_at DESC"
+        : sort === "spend" ? "spend IS NULL, spend DESC" : sort === "registrations" ? "registrations IS NULL, registrations DESC"
+        : sort === "cpr" ? "cpr IS NULL, cpr ASC" : "views DESC";
       const rows = db.prepare(`SELECT p.id, p.market, c.handle AS creator, p.type, substr(p.caption, 1, 80) AS caption, p.published_at AS publishedAt,
-        ${LATEST} AS views, ${DELTA_24H} AS growth24h, ${POTENTIAL} AS potential
+        ${LATEST} AS views, ${DELTA_24H} AS growth24h, ${POTENTIAL} AS potential,
+        json_extract(p.ads_json, '$.lifetime.spend') AS spend, json_extract(p.ads_json, '$.lifetime.registrations') AS registrations,
+        json_extract(p.ads_json, '$.lifetime.cpr') AS cpr, json_extract(p.ads_json, '$.lifetime.cpi') AS cpi, json_extract(p.ads_json, '$.status') AS adsStatus
         FROM posts p LEFT JOIN creators c ON c.id=p.creator_id ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY ${order} LIMIT ?`).all(...args, limit);
       return ok({ posts: rows });
     }),
@@ -243,6 +264,14 @@ tags_json: {dimension: {value, confidence}}; use json_extract.`, { sql: z.string
       const version = (db.prepare("SELECT MAX(version) AS v FROM post_features WHERE post_id=?").get(id) as { v: number | null }).v;
       if (!version) return fail("这条帖子还没有分析，先重新分析。");
       return queue("assess", { postId: id, version }, `assess:${id}:${version}`);
+    }),
+
+    tool("refresh_ads", `Refresh Spark Ads delivery data (spend, registrations, costs) for every tracked post now instead of waiting for the daily run; at most ${ADS_REFRESHES_PER_DAY} a day.`, {}, async () => {
+      used("refresh_ads");
+      const since = new Date(Date.now() - 86_400_000).toISOString();
+      const today = (db.prepare("SELECT COUNT(*) AS count FROM jobs WHERE kind='ads_sync' AND idempotency_key LIKE 'agent:%' AND created_at >= ?").get(since) as { count: number }).count;
+      if (today >= ADS_REFRESHES_PER_DAY) return fail(`今天已经手动刷新 ${ADS_REFRESHES_PER_DAY} 次投放数据，明天再试，或等每天的自动更新。`);
+      return queue("ads_sync", {}, `ads:${Date.now()}`);
     }),
 
     tool("queue_playbook", "Generate a new version of a market's playbook now instead of waiting for the weekly run.", { market: MARKET }, async ({ market }) => {

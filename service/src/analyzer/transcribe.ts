@@ -23,7 +23,7 @@ interface WhisperOutput { text?: string; language?: string; segments?: WhisperSe
 const HALLUCINATIONS = /thanks? (?:you )?for watching|please subscribe|like and subscribe|subscribe to|altyaz[ıi]|abone ol|izlediğiniz için teşekkürler|đăng ký kênh|cảm ơn các bạn đã (?:xem|theo dõi)|terima kasih (?:telah|sudah) menonton|ขอบคุณที่รับชม|شكرا للمشاهدة|ご視聴|字幕|♪+/gi;
 
 /** Languages each market's creators actually speak; a short clip in any other language is usually invented. */
-export const MARKET_LANGUAGES: Record<string, string[]> = { TR: ["tr"], VN: ["vi"], ID: ["id", "jw", "su", "ms"], TH: ["th"], GCC: ["ar", "en"] };
+export const MARKET_LANGUAGES: Record<string, string[]> = { TR: ["tr"], VN: ["vi"], ID: ["id", "jw", "su", "ms"], TH: ["th"], GCC: ["ar", "en"], IQ: ["ar", "en"] };
 
 /**
  * Whisper invents text over music-only clips; keep a transcript only when the

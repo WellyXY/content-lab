@@ -1,5 +1,5 @@
 const LANGUAGE_NAMES: Record<string, string> = { vi: "Vietnamese", tr: "Turkish", id: "Indonesian", th: "Thai", ar: "Arabic", en: "English", ms: "Malay", jw: "Javanese", su: "Sundanese" };
-const MARKET_CAPTION_LANGUAGE: Record<string, string> = { VN: "vi", TR: "tr", ID: "id", TH: "th", GCC: "ar" };
+const MARKET_CAPTION_LANGUAGE: Record<string, string> = { VN: "vi", TR: "tr", ID: "id", TH: "th", GCC: "ar", IQ: "ar" };
 
 export interface RecreateInputs {
   postId: string; market: string; durationS: number; caption: string | null;

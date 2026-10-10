@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Clock3, ListFilter, Play, Search } from "lucide-react";
 
+import { PostAdsCells, PostAdsHeadCells } from "@/components/content-lab/ads-panels";
 import { RelativeTime } from "@/components/content-lab/relative-time";
+import { adsSortValue } from "@/lib/ads";
 import { useLocale } from "@/lib/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -60,6 +62,7 @@ export default function PostsPage() {
       if (sort === "publishedAt") return comparePublishedNewest(a, b);
       if (sort === "views") return b.views - a.views;
       if (sort === "newest") return new Date(b.boundAt).getTime() - new Date(a.boundAt).getTime();
+      if (sort === "spend" || sort === "registrations" || sort === "cpr") return adsSortValue(b, sort) - adsSortValue(a, sort) || b.views - a.views;
       if (sort === "potential") return (a.potential ? POTENTIAL_RANK[a.potential] : 3) - (b.potential ? POTENTIAL_RANK[b.potential] : 3) || b.views - a.views;
       return b.delta24h - a.delta24h;
     });
@@ -94,14 +97,14 @@ export default function PostsPage() {
           </Select>
           <Select onValueChange={setSort} value={sort}>
             <SelectTrigger aria-label={t("排序", "Sort posts")} className="h-10 w-full border-white/10 bg-white/[0.025]"><ListFilter /><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="publishedAt">{t("发布时间（由新到旧）", "Published (newest first)")}</SelectItem><SelectItem value="delta24h">{t("24h 增量", "24h growth")}</SelectItem><SelectItem value="views">{t("累计播放", "Total views")}</SelectItem><SelectItem value="potential">{t("爆款可能性", "Viral potential")}</SelectItem><SelectItem value="newest">{t("最新绑定", "Recently bound")}</SelectItem></SelectContent>
+            <SelectContent><SelectItem value="publishedAt">{t("发布时间（由新到旧）", "Published (newest first)")}</SelectItem><SelectItem value="delta24h">{t("24h 增量", "24h growth")}</SelectItem><SelectItem value="views">{t("累计播放", "Total views")}</SelectItem><SelectItem value="potential">{t("爆款可能性", "Viral potential")}</SelectItem><SelectItem value="spend">{t("投放花费", "Ad spend")}</SelectItem><SelectItem value="registrations">{t("注册数", "Registrations")}</SelectItem><SelectItem value="cpr">{t("注册成本（低到高）", "Cost/reg (low to high)")}</SelectItem><SelectItem value="newest">{t("最新绑定", "Recently bound")}</SelectItem></SelectContent>
           </Select>
         </div>
 
         <CardContent className="p-0">
           {loading ? <div className="space-y-2 p-5">{Array.from({ length: 6 }, (_, index) => <Skeleton className="h-16 w-full" key={index} />)}</div> : filtered.length ? (
             <Table>
-              <TableHeader><TableRow className="border-white/8 hover:bg-transparent"><TableHead className="pl-5 text-xs text-muted-foreground">{t("内容", "Post")}</TableHead><TableHead className="text-xs text-muted-foreground">{t("市场 / 项目", "Market / project")}</TableHead><TableHead className="text-xs text-muted-foreground">{t("发布时间", "Published")}</TableHead><TableHead className="text-right text-xs text-muted-foreground">{t("累计 VV", "Views")}</TableHead><TableHead className="text-right text-xs text-muted-foreground">{t("24h 增量", "24h growth")}</TableHead><TableHead className="hidden text-xs text-muted-foreground lg:table-cell">{t("Agent 标签", "Agent tags")}</TableHead><TableHead className="hidden pr-5 text-right text-xs text-muted-foreground sm:table-cell">{t("状态", "Status")}</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow className="border-white/8 hover:bg-transparent"><TableHead className="pl-5 text-xs text-muted-foreground">{t("内容", "Post")}</TableHead><TableHead className="text-xs text-muted-foreground">{t("市场 / 项目", "Market / project")}</TableHead><TableHead className="text-xs text-muted-foreground">{t("发布时间", "Published")}</TableHead><TableHead className="text-right text-xs text-muted-foreground">{t("累计 VV", "Views")}</TableHead><TableHead className="text-right text-xs text-muted-foreground">{t("24h 增量", "24h growth")}</TableHead><PostAdsHeadCells /><TableHead className="hidden text-xs text-muted-foreground lg:table-cell">{t("Agent 标签", "Agent tags")}</TableHead><TableHead className="hidden pr-5 text-right text-xs text-muted-foreground sm:table-cell">{t("状态", "Status")}</TableHead></TableRow></TableHeader>
               <TableBody>{filtered.map((post) => <PostRow key={post.id} post={post} />)}</TableBody>
             </Table>
           ) : (
@@ -140,6 +143,7 @@ function PostRow({ post }: { post: PostSummary }) {
       </TableCell>
       <TableCell className="text-right font-mono font-semibold">{compactNumber(post.lastCapturedAt ? post.views : null)}</TableCell>
       <TableCell className="text-right"><span className="font-mono font-semibold text-cyan-200">{post.lastCapturedAt ? `+${compactNumber(post.delta24h)}` : "—"}</span></TableCell>
+      <PostAdsCells post={post} />
       <TableCell className="hidden lg:table-cell"><div className="flex max-w-56 flex-wrap gap-1.5">{post.hookType ? <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{tagLabel(post.hookType, "hook_type", lang)}</Badge> : null}{post.topic ? <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{tagLabel(post.topic, "topic", lang)}</Badge> : null}{potential ? <Badge className={potential.className} variant="outline">{t(potential.label[0], potential.label[1])}</Badge> : null}</div></TableCell>
       <TableCell className="hidden pr-5 text-right sm:table-cell"><Badge className={status.className} variant="outline">{t(status.label[0], status.label[1])}</Badge><div className="mt-1.5 flex items-center justify-end gap-1 text-[11px] text-muted-foreground"><Clock3 className="size-3" /><RelativeTime value={post.lastCapturedAt} /></div></TableCell>
     </TableRow>

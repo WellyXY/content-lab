@@ -1,0 +1,1 @@
+ALTER TABLE `posts` ADD `ads_json` text;

@@ -12,6 +12,9 @@ import { createContentLabFeishuBot } from "./feishu/bot.js";
 import { createFeishuWebhookTransport, deliverAlertOutbox, type FeishuAlertTransport } from "./feishu.js";
 import { completeJob, deferJob, enqueueJob, failJob, leaseJobs, type Job } from "./jobs/queue.js";
 import { TikTokProvider } from "./providers/tiktok.js";
+import { runProxyCall } from "./ads/proxy.js";
+import { adsSyncDue } from "./ads/schedule.js";
+import { runAdsSync } from "./ads/sync.js";
 import { failStaleRecreations, runRecreation } from "./recreate/run.js";
 import { runSchedulerCycle } from "./scheduler.js";
 import { flushSyncOutbox, pullRemoteJobs, SiteSyncClient } from "./sync/client.js";
@@ -65,6 +68,20 @@ async function pushPendingEvents(): Promise<void> {
 async function processJob(database: ContentLabDatabase, job: Job): Promise<void> {
   if (job.kind === "ingest") {
     await ingestPost(database, provider, job.payload as { url: string; market?: string | null; projectTag?: string | null; boundBy?: string | null; sitePostId?: string | null });
+    return;
+  }
+  if (job.kind === "ads_sync") {
+    const result = await runAdsSync(database, { call: (call) => runProxyCall(call, { model: config.adsModel }) });
+    log("ads_synced", { ...result });
+    if (result.status === "failed") {
+      // The connector lives in the owner's claude.ai account; tell them once a day when it needs attention.
+      const today = new Date().toISOString().slice(0, 10);
+      const alerted = database.prepare("SELECT value FROM scheduler_state WHERE key='ads_alert_date'").get() as { value: string } | undefined;
+      if (alerted?.value !== today) {
+        database.prepare("INSERT INTO scheduler_state(key, value, updated_at) VALUES ('ads_alert_date', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at").run(today, new Date().toISOString());
+        await feishuBot?.notifyOwner(`投放数据同步失败：${(result.error ?? "").slice(0, 200)}。如果是 TikTok 连接器授权过期，请在 Claude 的连接器设置里重新连接 TikTok for Business。`).catch(() => undefined);
+      }
+    }
     return;
   }
   if (job.kind === "recreate") {
@@ -150,6 +167,9 @@ const MODEL_JOB_KINDS = ["analyze", "assess", "playbook"];
  */
 const RECREATE_LEASE_MS = 2 * 60 * 60_000;
 let recreateRunning = false;
+/** The ads sync runs dozens of short Claude sessions; it gets its own slot so captures keep flowing. */
+const ADS_LEASE_MS = 90 * 60_000;
+let adsRunning = false;
 const ANALYSIS_LEASE_MS = 20 * 60_000;
 const inflightAnalyses = new Set<Promise<void>>();
 let analysisPausedUntil = 0;
@@ -191,6 +211,13 @@ async function handleJob(job: Job): Promise<void> {
 /** Fill the analysis pool; each analysis runs alongside captures instead of blocking them. */
 function startAnalyses(): void {
   if (Date.now() < analysisPausedUntil) return;
+  if (!adsRunning) {
+    const ads = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ADS_LEASE_MS, kinds: ["ads_sync"] })[0];
+    if (ads) {
+      adsRunning = true;
+      void handleJob(ads).finally(() => { adsRunning = false; });
+    }
+  }
   if (!recreateRunning) {
     const recreate = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: RECREATE_LEASE_MS, kinds: ["recreate"] })[0];
     if (recreate) {
@@ -212,6 +239,8 @@ export async function runWorkerCycle(): Promise<void> {
     catch (error) { log("site_pull_failed", { error: error instanceof Error ? error.message : String(error) }); }
   }
   log("scheduler_cycle", { ...runSchedulerCycle(db) });
+  const adsKey = adsSyncDue(new Date());
+  if (adsKey) enqueueJob(db, { kind: "ads_sync", payload: {}, idempotencyKey: adsKey, maxAttempts: 2 });
   const staleRecreations = failStaleRecreations(db);
   if (staleRecreations) log("recreations_failed_stale", { count: staleRecreations });
   const now = new Date().toISOString();
@@ -221,7 +250,7 @@ export async function runWorkerCycle(): Promise<void> {
   await pushPendingEvents();
   startAnalyses();
   for (let processed = 0; processed < 20; processed += 1) {
-    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, excludeKinds: [...MODEL_JOB_KINDS, "recreate"] })[0];
+    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, excludeKinds: [...MODEL_JOB_KINDS, "recreate", "ads_sync"] })[0];
     if (!job) break;
     await handleJob(job);
     // An ingest enqueues its analysis; start it right away.

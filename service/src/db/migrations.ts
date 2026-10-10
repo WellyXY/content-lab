@@ -141,6 +141,29 @@ const MIGRATIONS = [
   ) STRICT;
   CREATE INDEX recreations_post ON recreations(post_id, created_at);
   `,
+  `
+  ALTER TABLE posts ADD COLUMN ads_json TEXT;
+  CREATE TABLE ad_accounts (
+    advertiser_id TEXT PRIMARY KEY, name TEXT, currency TEXT, timezone TEXT, last_link_scan_at TEXT, updated_at TEXT NOT NULL
+  ) STRICT;
+  CREATE TABLE ad_links (
+    ad_id TEXT PRIMARY KEY, advertiser_id TEXT NOT NULL, tiktok_item_id TEXT NOT NULL, ad_name TEXT, campaign_id TEXT, campaign_name TEXT,
+    adgroup_id TEXT, create_time TEXT, modify_time TEXT, updated_at TEXT NOT NULL
+  ) STRICT;
+  CREATE INDEX ad_links_item ON ad_links(tiktok_item_id);
+  CREATE TABLE ad_lifetime (
+    ad_id TEXT PRIMARY KEY, spend REAL NOT NULL, impressions INTEGER NOT NULL, clicks INTEGER NOT NULL, installs INTEGER NOT NULL,
+    registrations INTEGER NOT NULL, video_plays INTEGER NOT NULL, currency TEXT, refreshed_at TEXT NOT NULL
+  ) STRICT;
+  CREATE TABLE ad_daily (
+    ad_id TEXT NOT NULL, stat_date TEXT NOT NULL, spend REAL NOT NULL, impressions INTEGER NOT NULL, clicks INTEGER NOT NULL,
+    installs INTEGER NOT NULL, registrations INTEGER NOT NULL, currency TEXT, timezone TEXT, refreshed_at TEXT NOT NULL,
+    PRIMARY KEY (ad_id, stat_date)
+  ) STRICT;
+  CREATE TABLE ad_sync_runs (
+    id TEXT PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT, calls INTEGER NOT NULL, status TEXT NOT NULL, error TEXT
+  ) STRICT;
+  `,
 ] as const;
 
 export function migrate(db: DatabaseSync): void {

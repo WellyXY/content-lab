@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Activity, Clock3, Flame, Radio, WifiOff } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
+import { MarketAdsPanel } from "@/components/content-lab/ads-panels";
 import { RelativeTime } from "@/components/content-lab/relative-time";
 import { useLocale } from "@/lib/i18n";
 import { Badge } from "@/components/ui/badge";
@@ -178,6 +179,8 @@ export default function OverviewPage() {
           </CardContent>
         </Card>
       </section>
+
+      <MarketAdsPanel markets={data.adsByMarket} topPosts={data.topRegistrationPosts} />
 
       {!workerOnline ? (
         <section className="mt-4 flex flex-col gap-4 rounded-xl border border-primary/15 bg-primary/[0.045] p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
