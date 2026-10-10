@@ -81,6 +81,14 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
         database.prepare("INSERT INTO scheduler_state(key, value, updated_at) VALUES ('ads_alert_date', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at").run(today, new Date().toISOString());
         await feishuBot?.notifyOwner(`投放数据同步失败：${(result.error ?? "").slice(0, 200)}。如果是 TikTok 连接器授权过期，请在 Claude 的连接器设置里重新连接 TikTok for Business。`).catch(() => undefined);
       }
+      // Fail the job so the queue retries it.
+      throw new Error(`Ads sync failed: ${result.error ?? "unknown"}`);
+    }
+    if (result.status === "partial") {
+      // The call budget ran out (the first full scan takes several runs): continue soon, at most 4 extra runs a day.
+      const since = new Date(Date.now() - 86_400_000).toISOString();
+      const extra = (database.prepare("SELECT COUNT(*) AS count FROM jobs WHERE kind='ads_sync' AND idempotency_key LIKE 'ads_sync:continue:%' AND created_at >= ?").get(since) as { count: number }).count;
+      if (extra < 4) enqueueJob(database, { kind: "ads_sync", payload: {}, idempotencyKey: `ads_sync:continue:${Date.now()}`, runAt: new Date(Date.now() + 5 * 60_000).toISOString(), maxAttempts: 2 });
     }
     return;
   }
