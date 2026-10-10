@@ -115,5 +115,14 @@ export async function runProxyCall(call: PlannedCall, deps: { query?: typeof que
     release();
     controller.abort();
   }
-  return extractToolResult(messages, call.tool);
+  try {
+    return extractToolResult(messages, call.tool);
+  } catch (error) {
+    // Say why: a refused call, a tool error or a reply without a call.
+    const result = messages.find((message) => message.type === "result") as { result?: string; permission_denials?: unknown[] } | undefined;
+    const toolErrors = messages.flatMap((message) => message.type === "user" && Array.isArray(message.message?.content)
+      ? (message.message.content as Array<{ type: string; is_error?: boolean; content?: unknown }>).filter((block) => block.type === "tool_result" && block.is_error).map((block) => JSON.stringify(block.content).slice(0, 200))
+      : []);
+    throw new Error(`${error instanceof Error ? error.message : String(error)}; denials ${result?.permission_denials?.length ?? 0}; tool errors ${toolErrors.join(" | ") || "none"}; reply ${JSON.stringify((result?.result ?? "").slice(0, 200))}`);
+  }
 }

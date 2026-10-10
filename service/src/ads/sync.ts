@@ -25,7 +25,14 @@ export async function runAdsSync(db: ContentLabDatabase, deps: { call: (call: Pl
   const request = async (call: PlannedCall): Promise<unknown> => {
     if (calls >= maxCalls) throw new BudgetExhausted();
     calls += 1;
-    return deps.call(call);
+    try {
+      return await deps.call(call);
+    } catch (error) {
+      // A proxy session occasionally ends without calling the tool; one retry covers it.
+      if (calls >= maxCalls) throw error;
+      calls += 1;
+      return deps.call(call);
+    }
   };
   /** Follow pages of one planned call until the API says there are no more. */
   const paged = async <T>(call: PlannedCall, parse: (raw: unknown) => { morePages: boolean } & T, handle: (page: T) => void): Promise<void> => {

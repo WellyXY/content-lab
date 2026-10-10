@@ -68,6 +68,8 @@ export function postAdsSummary(db: ContentLabDatabase, postId: string, now = new
   const ids = links.map((link) => link.ad_id);
   const marks = ids.map(() => "?").join(",");
   const lifetime = db.prepare(`SELECT ad_id, spend, impressions, clicks, installs, registrations, currency, refreshed_at FROM ad_lifetime WHERE ad_id IN (${marks})`).all(...ids) as Array<Row & { refreshed_at: string }>;
+  // Linked but not measured yet: the numbers are unavailable, not zero.
+  if (lifetime.length === 0) return null;
   const daily = db.prepare(`SELECT ad_id, stat_date, spend, impressions, clicks, installs, registrations, currency FROM ad_daily WHERE ad_id IN (${marks}) AND stat_date >= ?`).all(...ids, accountDate(now, 14)) as Array<Row & { stat_date: string }>;
   const counted = lifetime.filter(usd);
   const countedDaily = daily.filter(usd);

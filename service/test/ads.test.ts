@@ -169,3 +169,29 @@ describe("ads schedule", () => {
     expect(adsSyncDue(new Date("2026-10-10T16:00:00Z"))).toBeNull();
   });
 });
+
+describe("ads failures", () => {
+  it("shows no numbers for a promoted post whose metrics have not been fetched yet", () => {
+    const db = openDatabase(":memory:");
+    const post = upsertPost(db, { source: "tikwm", metrics: null, metadata: { videoId: "7400000000000000005", url: "https://www.tiktok.com/@a/video/7400000000000000005", authorId: "u", authorHandle: "a", caption: "", type: "video", durationS: 10, musicTitle: null, coverUrl: null, mediaUrl: null, imageUrls: [], publishedAt: null } }, { market: "VN", projectTag: null, boundBy: null });
+    storeAdLinks(db, "adv1", [{ adId: "a5", itemId: "7400000000000000005", adName: "x", campaignName: null, campaignId: null, adgroupId: null, createTime: null, modifyTime: null }], "2026-10-10T00:00:00.000Z");
+    expect(postAdsSummary(db, post.id, new Date("2026-10-10T03:00:00.000Z"))).toBeNull();
+    db.close();
+  });
+
+  it("retries a failed call once before giving up", async () => {
+    const db = openDatabase(":memory:");
+    let accountAttempts = 0;
+    const call = async (planned: { tool: string; input: Record<string, unknown> }) => {
+      if (planned.tool === TIKTOK_TOOLS.accounts) {
+        accountAttempts += 1;
+        if (accountAttempts === 1) throw new Error("no tool result for accounts");
+        return JSON.parse(ok({ list: [] }));
+      }
+      throw new Error("unexpected");
+    };
+    expect((await runAdsSync(db, { call }, new Date("2026-10-10T03:00:00.000Z"))).status).toBe("ok");
+    expect(accountAttempts).toBe(2);
+    db.close();
+  });
+});
