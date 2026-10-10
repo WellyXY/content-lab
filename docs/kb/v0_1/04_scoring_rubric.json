@@ -1,0 +1,50 @@
+{
+  "version": "0.1",
+  "scale": "0-10",
+  "weights": "No universal fixed weights; qualitative anchor calibration only",
+  "score_types": {
+    "creative": {
+      "definition": "Quality of content expression: attention, delivery, payoff, cohesion, cultural comprehension where relevant",
+      "anchors": {
+        "0-2": "Incoherent or no identifiable viewing reason",
+        "3-4": "Limited interest; weak execution, payoffs or coherence",
+        "5-6": "Some effective mechanism and watch value, material execution weakness",
+        "7-8": "Clear, well-executed appeal and content reward",
+        "9-10": "Exceptional execution/impact with clear evidence of sustained viewing incentives"
+      }
+    },
+    "registration_potential": {
+      "definition": "How compellingly the content connects felt desire to personally plausible Popup experience",
+      "anchors": {
+        "0-2": "No defensible reason to download Popup from the content",
+        "3-4": "Entertainment/creator-centered interest; limited product desire",
+        "5-6": "App use case is understood but weak personal reason to try",
+        "7-8": "Concrete product-linked user desire and plausible experience",
+        "9-10": "Exceptionally clear, credible, sustained product desire, with strong evidence in the creative"
+      }
+    }
+  },
+  "rules": [
+    "Scores are independent and determined before outcomes are revealed",
+    "Do not reward trend, local slang, originality or reverse automatically",
+    "Reverse absent may be N/A; not zero",
+    "Use null when key media or linguistic evidence is unavailable",
+    "Provide timestamps/panel references and confidence for each rating",
+    "Do not report numeric predictions as statistically validated probabilities"
+  ],
+  "performance_fields": [
+    "spend_usd",
+    "unique_registrations",
+    "cpa_usd",
+    "weekly_registrations",
+    "weekly_cpa",
+    "paid_effective_weeks",
+    "ctr_metric_definition",
+    "video_2s_6s_play_rates",
+    "organic_views_separate"
+  ],
+  "expert_priority_notes": {
+    "reverse": "Expert subjective emphasis approximately 70% when central to narrative and motivation; not a model coefficient",
+    "experience_credibility": "Expert subjective emphasis approximately 70%; staging can remain plausible; not factual authenticity"
+  }
+}

@@ -1,0 +1,229 @@
+{
+  "version": "0.1",
+  "status": "draft / needs final user and source validation",
+  "vn_cases": [
+    {
+      "case_id": "VN-001",
+      "market": "VN",
+      "creative_name_user_supplied": "VN-260224-shxinchao-2",
+      "format_or_theme": "romantic trend three-panel",
+      "human_observed_mechanism": "One Day or Day One format; outcome-first romantic reversal",
+      "motivation_hypothesis": "Romantic aspiration",
+      "ad_join_status": "ads_name_unmatched",
+      "historically_reported_ads_data": null,
+      "provenance": {
+        "mechanism": "conversation screenshot and human analyst discussion",
+        "metric": "prior assistant summary of uploaded VN ad spreadsheet; not blind rating"
+      },
+      "is_blind_holdout": false
+    },
+    {
+      "case_id": "VN-002",
+      "market": "VN",
+      "creative_name_user_supplied": "VN-260317-KOL-n_hchou.209-3",
+      "format_or_theme": "emotional suspense",
+      "human_observed_mechanism": "Full plot unverified; do not assert exact reversal",
+      "motivation_hypothesis": "to_be_verified",
+      "ad_join_status": "matched_previously_reported",
+      "historically_reported_ads_data": {
+        "unique_registrations": 3144,
+        "aggregate_cpa_usd": 0.495,
+        "source": "conversation previously reported Excel aggregation; recompute/verify exact source before production use"
+      },
+      "provenance": {
+        "mechanism": "conversation screenshot and human analyst discussion",
+        "metric": "prior assistant summary of uploaded VN ad spreadsheet; not blind rating"
+      },
+      "is_blind_holdout": false
+    },
+    {
+      "case_id": "VN-003",
+      "market": "VN",
+      "creative_name_user_supplied": "VN-260415-KOL-mothuhai-4",
+      "format_or_theme": "relatable app meme",
+      "human_observed_mechanism": "young people lifestyle and app use cases",
+      "motivation_hypothesis": "Direct social need",
+      "ad_join_status": "matched_previously_reported",
+      "historically_reported_ads_data": {
+        "unique_registrations": 4390,
+        "aggregate_cpa_usd": 0.408,
+        "source": "conversation previously reported Excel aggregation; recompute/verify exact source before production use"
+      },
+      "provenance": {
+        "mechanism": "conversation screenshot and human analyst discussion",
+        "metric": "prior assistant summary of uploaded VN ad spreadsheet; not blind rating"
+      },
+      "is_blind_holdout": false
+    },
+    {
+      "case_id": "VN-004",
+      "market": "VN",
+      "creative_name_user_supplied": "VN-260407-KOL-mie.lowlp-11",
+      "format_or_theme": "romantic three-panel",
+      "human_observed_mechanism": "Emotional longing; initial rejection followed by couple reveal",
+      "motivation_hypothesis": "Romantic aspiration",
+      "ad_join_status": "matched_previously_reported",
+      "historically_reported_ads_data": {
+        "unique_registrations": 4541,
+        "aggregate_cpa_usd": 0.429,
+        "source": "conversation previously reported Excel aggregation; recompute/verify exact source before production use"
+      },
+      "provenance": {
+        "mechanism": "conversation screenshot and human analyst discussion",
+        "metric": "prior assistant summary of uploaded VN ad spreadsheet; not blind rating"
+      },
+      "is_blind_holdout": false
+    },
+    {
+      "case_id": "VN-005",
+      "market": "VN",
+      "creative_name_user_supplied": "VN-260421-mothuhai-9",
+      "format_or_theme": "direct emotional need",
+      "human_observed_mechanism": "Fear of not finding the right person; direct Popup solution",
+      "motivation_hypothesis": "Direct relationship need",
+      "ad_join_status": "ads_name_unmatched",
+      "historically_reported_ads_data": null,
+      "provenance": {
+        "mechanism": "conversation screenshot and human analyst discussion",
+        "metric": "prior assistant summary of uploaded VN ad spreadsheet; not blind rating"
+      },
+      "is_blind_holdout": false
+    },
+    {
+      "case_id": "VN-006",
+      "market": "VN",
+      "creative_name_user_supplied": "VN-260615-KOL-ngocanh_yeuvailin-15",
+      "format_or_theme": "comparison humor",
+      "human_observed_mechanism": "others sweet messages vs own weather notifications",
+      "motivation_hypothesis": "Want to be cared for",
+      "ad_join_status": "matched_previously_reported",
+      "historically_reported_ads_data": {
+        "unique_registrations": 9380,
+        "aggregate_cpa_usd": 0.404,
+        "source": "conversation previously reported Excel aggregation; recompute/verify exact source before production use"
+      },
+      "provenance": {
+        "mechanism": "conversation screenshot and human analyst discussion",
+        "metric": "prior assistant summary of uploaded VN ad spreadsheet; not blind rating"
+      },
+      "is_blind_holdout": false
+    },
+    {
+      "case_id": "VN-007",
+      "market": "VN",
+      "creative_name_user_supplied": "VN-260728-KOL-trongnongngoailanh-10",
+      "format_or_theme": "friendship/chat photo",
+      "human_observed_mechanism": "friendship connection with chat notification screenshots",
+      "motivation_hypothesis": "Belonging/friendship",
+      "ad_join_status": "matched_previously_reported",
+      "historically_reported_ads_data": {
+        "unique_registrations": 1491,
+        "aggregate_cpa_usd": 0.382,
+        "source": "conversation previously reported Excel aggregation; recompute/verify exact source before production use"
+      },
+      "provenance": {
+        "mechanism": "conversation screenshot and human analyst discussion",
+        "metric": "prior assistant summary of uploaded VN ad spreadsheet; not blind rating"
+      },
+      "is_blind_holdout": false
+    },
+    {
+      "case_id": "VN-008",
+      "market": "VN",
+      "creative_name_user_supplied": "VN-260714-KOL-anhluna-05",
+      "format_or_theme": "local language chat humor",
+      "human_observed_mechanism": "Adam voice, screenshots and successive micro-reverses",
+      "motivation_hypothesis": "Want to experience humorous stranger conversation",
+      "ad_join_status": "matched_previously_reported",
+      "historically_reported_ads_data": {
+        "unique_registrations": 21440,
+        "aggregate_cpa_usd": 0.38,
+        "source": "conversation previously reported Excel aggregation; recompute/verify exact source before production use"
+      },
+      "provenance": {
+        "mechanism": "conversation screenshot and human analyst discussion",
+        "metric": "prior assistant summary of uploaded VN ad spreadsheet; not blind rating"
+      },
+      "is_blind_holdout": false
+    },
+    {
+      "case_id": "VN-009",
+      "market": "VN",
+      "creative_name_user_supplied": "VN-260609-KOL-nguyenhoangthaibao0-8",
+      "format_or_theme": "emotional direct appeal",
+      "human_observed_mechanism": "easy to catch feelings on Popup",
+      "motivation_hypothesis": "Romantic/social possibility",
+      "ad_join_status": "matched_previously_reported",
+      "historically_reported_ads_data": {
+        "unique_registrations": 9762,
+        "aggregate_cpa_usd": 0.429,
+        "source": "conversation previously reported Excel aggregation; recompute/verify exact source before production use"
+      },
+      "provenance": {
+        "mechanism": "conversation screenshot and human analyst discussion",
+        "metric": "prior assistant summary of uploaded VN ad spreadsheet; not blind rating"
+      },
+      "is_blind_holdout": false
+    }
+  ],
+  "anhluna_replications": [
+    {
+      "creative_name": "VN-260915-KOL-anhluna-15",
+      "human_label": "flop / did not scale",
+      "reported_ads_data": {
+        "spend_usd": 6.85,
+        "registrations": 8,
+        "cpa_usd": 0.856
+      },
+      "interpretation": "insufficient spend for reliable attribution of failure cause",
+      "content_evidence": "anhluna-three-evidence.zip; exact per-file identity mapping must be verified before joining",
+      "is_blind_holdout": false
+    },
+    {
+      "creative_name": "VN-260915-KOL-anhluna-16",
+      "human_label": "flop / did not scale",
+      "reported_ads_data": {
+        "spend_usd": 1.94,
+        "registrations": 5,
+        "cpa_usd": 0.388
+      },
+      "interpretation": "insufficient spend for reliable attribution of failure cause",
+      "content_evidence": "anhluna-three-evidence.zip; exact per-file identity mapping must be verified before joining",
+      "is_blind_holdout": false
+    },
+    {
+      "creative_name": "VN-260908-KOL-anhluna-08",
+      "human_label": "flop / did not scale",
+      "reported_ads_data": {
+        "spend_usd": 3.46,
+        "registrations": 4,
+        "cpa_usd": 0.865
+      },
+      "interpretation": "insufficient spend for reliable attribution of failure cause",
+      "content_evidence": "anhluna-three-evidence.zip; exact per-file identity mapping must be verified before joining",
+      "is_blind_holdout": false
+    }
+  ],
+  "human_insight_about_third_replication": "Main shortcoming is download motivation, not lack of humor. Identity of 'third' evidence must be reconciled with its advertisement name.",
+  "cross_market_reference": [
+    {
+      "market": "IQ",
+      "example": "33M romantic belief-challenge story",
+      "human_observation": "registrations with sustained low CPA",
+      "qualification": "exact weekly values not yet supplied"
+    },
+    {
+      "market": "VN",
+      "example": "2-minute Voice Match lipreading challenge",
+      "human_observation": "entertaining organic content, poor paid registration/weak longevity",
+      "qualification": "metrics not fully attached"
+    }
+  ],
+  "known_gaps": [
+    "Two VN asset-to-ad name mappings unresolved",
+    "anhluna replica media ID to campaign name mapping unverified",
+    "some cases only have screenshots rather than complete multimodal evidence",
+    "historical reported metrics require re-computation from attachment in deployment pipeline",
+    "all cases contributed to rule formation and are not blind test cases"
+  ]
+}
