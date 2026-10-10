@@ -72,20 +72,21 @@ export async function runAdsSync(db: ContentLabDatabase, deps: { call: (call: Pl
     else { result.status = "failed"; result.error = error instanceof Error ? error.message : String(error); }
   } finally {
     result.calls = calls;
-    result.posts = refreshPostAds(db, now);
+    // A complete run re-sends every promoted post, so a push the Site dropped (e.g. before a release) heals within a day.
+    result.posts = refreshPostAds(db, now, { resendAll: result.status === "ok" });
     db.prepare("UPDATE ad_sync_runs SET finished_at=?, calls=?, status=?, error=? WHERE id=?").run(new Date().toISOString(), calls, result.status, result.error ?? null, runId);
   }
   return result;
 }
 
-/** Recompute each promoted post's summary; posts whose summary changed are synced to the Site. */
-export function refreshPostAds(db: ContentLabDatabase, now = new Date()): number {
+/** Recompute each promoted post's summary; posts whose summary changed (or all of them with `resendAll`) are synced to the Site. */
+export function refreshPostAds(db: ContentLabDatabase, now = new Date(), options: { resendAll?: boolean } = {}): number {
   const posts = db.prepare(`SELECT DISTINCT p.id, p.ads_json FROM posts p JOIN ad_links l ON l.tiktok_item_id=p.video_id`).all() as Array<{ id: string; ads_json: string | null }>;
   let changed = 0;
   for (const post of posts) {
     const json = JSON.stringify(postAdsSummary(db, post.id, now));
-    if (json === post.ads_json) continue;
-    db.prepare("UPDATE posts SET ads_json=? WHERE id=?").run(json, post.id);
+    if (json === post.ads_json && !options.resendAll) continue;
+    if (json !== post.ads_json) db.prepare("UPDATE posts SET ads_json=? WHERE id=?").run(json, post.id);
     syncPostReadModel(db, post.id, now.toISOString());
     changed += 1;
   }

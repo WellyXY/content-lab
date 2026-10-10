@@ -195,3 +195,22 @@ describe("ads failures", () => {
     db.close();
   });
 });
+
+describe("ads delivery to the site", () => {
+  it("re-sends every promoted post on a full refresh even when nothing changed, so a dropped push heals itself", async () => {
+    const { refreshPostAds } = await import("../src/ads/sync.js");
+    const db = openDatabase(":memory:");
+    const post = upsertPost(db, { source: "tikwm", metrics: null, metadata: { videoId: "7400000000000000009", url: "https://www.tiktok.com/@a/video/7400000000000000009", authorId: "u", authorHandle: "a", caption: "", type: "video", durationS: 10, musicTitle: null, coverUrl: null, mediaUrl: null, imageUrls: [], publishedAt: null } }, { market: "VN", projectTag: null, boundBy: null });
+    storeAdLinks(db, "adv1", [{ adId: "a9", itemId: "7400000000000000009", adName: "x", campaignName: null, campaignId: null, adgroupId: null, createTime: null, modifyTime: null }], "2026-10-10T00:00:00.000Z");
+    storeLifetime(db, [{ adId: "a9", date: null, spend: 9, impressions: 1, clicks: 0, installs: 1, registrations: 1, videoPlays: 0, currency: "USD", timezone: null }], "2026-10-10T00:00:00.000Z");
+    const now = new Date("2026-10-10T03:00:00.000Z");
+    expect(refreshPostAds(db, now)).toBe(1);
+    db.prepare("DELETE FROM sync_outbox").run();
+    expect(refreshPostAds(db, now)).toBe(0);
+    expect(refreshPostAds(db, now, { resendAll: true })).toBe(1);
+    const payload = JSON.parse((db.prepare("SELECT payload_json FROM sync_outbox WHERE type='post'").get() as { payload_json: string }).payload_json) as { ads: { lifetime: { spend: number } } };
+    expect(payload.ads.lifetime.spend).toBe(9);
+    db.close();
+    void post;
+  });
+});
