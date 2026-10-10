@@ -124,6 +124,24 @@ function insertAlert(
   return false;
 }
 
+/** Views of the latest successful capture at least `hoursAgo` before `now`, or null. */
+function viewsHoursAgo(db: ContentLabDatabase, postId: string, now: string, hoursAgo: number): number | null {
+  const row = db.prepare("SELECT views FROM metric_snapshots WHERE post_id=? AND ok=1 AND views IS NOT NULL AND captured_at <= ? ORDER BY captured_at DESC LIMIT 1")
+    .get(postId, new Date(Date.parse(now) - hoursAgo * 3_600_000).toISOString()) as { views: number } | undefined;
+  return row?.views ?? null;
+}
+
+/** Growth over the last day (a capture 20+ hours back) and the day before it (44+ hours back). */
+function dailyGrowth(db: ContentLabDatabase, postId: string, now: string, views: number): { dayDelta: number | null; prevDayDelta: number | null; dayBase: number | null } {
+  const dayAgo = viewsHoursAgo(db, postId, now, 20);
+  const twoDaysAgo = viewsHoursAgo(db, postId, now, 44);
+  return {
+    dayDelta: dayAgo === null ? null : Math.max(0, views - dayAgo),
+    prevDayDelta: dayAgo === null || twoDaysAgo === null ? null : Math.max(0, dayAgo - twoDaysAgo),
+    dayBase: dayAgo,
+  };
+}
+
 function scheduleNextCapture(db: ContentLabDatabase, post: PostRow, metrics: PostMetrics, now: string): void {
   const recent = db.prepare(`
     SELECT COALESCE(SUM(views_delta),0) AS delta FROM post_hourly
@@ -132,6 +150,7 @@ function scheduleNextCapture(db: ContentLabDatabase, post: PostRow, metrics: Pos
   const schedule = nextCaptureAt({
     publishedAtMs: Date.parse(post.published_at ?? post.bound_at), nowMs: Date.parse(now), views: metrics.views,
     recentThreeHourDelta: recent.delta,
+    dayGrowth: (() => { const growth = dailyGrowth(db, post.id, now, metrics.views); return growth.dayDelta === null ? null : { delta: growth.dayDelta, base: growth.dayBase ?? 0 }; })(),
   });
   db.prepare("UPDATE posts SET tracking_state=?, next_capture_at=?, capture_failures=0, updated_at=? WHERE id=?")
     .run(schedule.state, schedule.nextCaptureAt, now, post.id);
@@ -194,7 +213,9 @@ export function recordSnapshot(
     `).all(post.id, bucket) as Array<{ value: number }>).map((row) => row.value);
     const offsetHours = MARKET_UTC_OFFSET_HOURS[post.market?.toUpperCase() ?? ""] ?? 0;
     const day = new Date(Date.parse(now) + offsetHours * 3_600_000).toISOString().slice(0, 10);
-    for (const candidate of evaluateAlerts({ postId: post.id, previousViews: previous.views, currentViews: metrics.views, currentDelta, priorSixDeltas: prior, day })) {
+    const { dayDelta, prevDayDelta } = dailyGrowth(db, post.id, now, metrics.views);
+    const creator = db.prepare("SELECT c.handle FROM posts p LEFT JOIN creators c ON c.id=p.creator_id WHERE p.id=?").get(post.id) as { handle: string | null } | undefined;
+    for (const candidate of evaluateAlerts({ postId: post.id, previousViews: previous.views, currentViews: metrics.views, currentDelta, priorSixDeltas: prior, day, dayDelta, prevDayDelta })) {
       if (candidate.rule === "acceleration") {
         const cooldown = db.prepare("SELECT 1 FROM alerts WHERE post_id=? AND rule='acceleration' AND fired_at>? LIMIT 1")
           .get(post.id, new Date(Date.parse(now) - 6 * 3_600_000).toISOString());
@@ -202,7 +223,7 @@ export function recordSnapshot(
       }
       insertAlert(db, {
         postId: post.id, rule: candidate.rule, dedupeKey: candidate.dedupeKey,
-        payload: { postId: post.id, videoId: post.video_id, url: post.url, market: post.market, previousViews: previous.views, currentViews: metrics.views, delta: currentDelta, level: candidate.level },
+        payload: { postId: post.id, videoId: post.video_id, url: post.url, market: post.market, creatorHandle: creator?.handle ?? null, previousViews: previous.views, currentViews: metrics.views, delta: currentDelta, dayDelta, prevDayDelta, level: candidate.level },
       }, now);
     }
   }

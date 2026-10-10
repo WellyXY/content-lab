@@ -40,3 +40,20 @@ describe("early performance checkpoints", () => {
     db.close();
   });
 });
+
+describe("surge on a post captured once a day", () => {
+  it("raises a surge signal with the creator and switches the post back to hourly captures", () => {
+    const db = openDatabase(":memory:");
+    const publishedAt = "2026-10-01T05:00:00.000Z";
+    const metadata = { videoId: "7400000000000000077", url: "https://www.tiktok.com/@pttnh/video/7400000000000000077", authorId: "u7", authorHandle: "pttnh", caption: "", type: "video" as const, durationS: 10, musicTitle: null, coverUrl: null, mediaUrl: null, imageUrls: [], publishedAt };
+    const post = upsertPost(db, { source: "tikwm", metadata, metrics: null }, { market: "VN", projectTag: null, boundBy: null }, "2026-10-09T04:53:00.000Z");
+    recordSnapshot(db, post, { views: 574_007, likes: 1, comments: 1, shares: 1, saves: 1 }, "tikwm", "2026-10-09T04:53:00.000Z");
+    expect((db.prepare("SELECT tracking_state FROM posts WHERE id=?").get(post.id) as { tracking_state: string }).tracking_state).toBe("daily");
+    recordSnapshot(db, post, { views: 777_624, likes: 1, comments: 1, shares: 1, saves: 1 }, "tikwm", "2026-10-10T04:53:00.000Z");
+    const alert = db.prepare("SELECT rule, payload_json FROM alerts WHERE post_id=?").get(post.id) as { rule: string; payload_json: string };
+    expect(alert.rule).toBe("surge");
+    expect(JSON.parse(alert.payload_json)).toMatchObject({ creatorHandle: "pttnh", currentViews: 777_624, dayDelta: 203_617 });
+    expect((db.prepare("SELECT tracking_state FROM posts WHERE id=?").get(post.id) as { tracking_state: string }).tracking_state).toBe("active");
+    db.close();
+  });
+});

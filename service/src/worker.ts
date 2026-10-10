@@ -74,12 +74,15 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
     const result = await runAdsSync(database, { call: (call) => runProxyCall(call, { model: config.adsModel }) });
     log("ads_synced", { ...result });
     if (result.status === "failed") {
-      // The connector lives in the owner's claude.ai account; tell them once a day when it needs attention.
+      // Tell the owner once a day, and only when the last retry also failed.
       const today = new Date().toISOString().slice(0, 10);
       const alerted = database.prepare("SELECT value FROM scheduler_state WHERE key='ads_alert_date'").get() as { value: string } | undefined;
-      if (alerted?.value !== today) {
+      const connectorProblem = /TikTok connector/.test(result.error ?? "");
+      if (job.attempts >= job.maxAttempts && alerted?.value !== today) {
         database.prepare("INSERT INTO scheduler_state(key, value, updated_at) VALUES ('ads_alert_date', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at").run(today, new Date().toISOString());
-        await feishuBot?.notifyOwner(`投放数据同步失败：${(result.error ?? "").slice(0, 200)}。如果是 TikTok 连接器授权过期，请在 Claude 的连接器设置里重新连接 TikTok for Business。`).catch(() => undefined);
+        await feishuBot?.notifyOwner(connectorProblem
+          ? `投放数据同步失败：TikTok 连接器连不上（${(result.error ?? "").slice(0, 120)}）。请在 Claude 的连接器设置里重新连接 TikTok for Business。`
+          : `投放数据同步重试后仍然失败：${(result.error ?? "").slice(0, 200)}。网站保留上一次的数据，明天会自动再试，也可以让我手动刷新。`).catch(() => undefined);
       }
       // Fail the job so the queue retries it.
       throw new Error(`Ads sync failed: ${result.error ?? "unknown"}`);

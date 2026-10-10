@@ -143,9 +143,9 @@ export default function OverviewPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-medium">{String(payload.creatorHandle ?? t("内容信号", "Content signal"))}</p>
-                      <Badge className="border-[#ff715b]/20 bg-[#ff715b]/10 text-[#ff9c8d]" variant="outline">{alert.rule.replaceAll("_", " ")}</Badge>
+                      <Badge className="border-[#ff715b]/20 bg-[#ff715b]/10 text-[#ff9c8d]" variant="outline">{t(...(ALERT_RULES[alert.rule] ?? [alert.rule.replaceAll("_", " "), alert.rule.replaceAll("_", " ")]))}</Badge>
                     </div>
-                    <p className="mt-1 text-sm text-muted-foreground">{t("目前", "Now")} {compactNumber(Number(payload.currentViews ?? 0))} · {t("最新增量", "latest delta")} +{compactNumber(Number(payload.delta ?? 0))}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{t("目前", "Now")} {compactNumber(Number(payload.currentViews ?? 0))} · {alert.rule === "surge" ? t("一天增加", "gained in a day") : t("最新增量", "latest delta")} +{compactNumber(Number((alert.rule === "surge" ? payload.dayDelta : payload.delta) ?? 0))}</p>
                   </div>
                   <div className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground"><Clock3 className="size-3.5" /><RelativeTime value={alert.firedAt} /></div>
                 </div>
@@ -194,6 +194,12 @@ export default function OverviewPage() {
     </>
   );
 }
+
+const ALERT_RULES: Record<string, [string, string]> = {
+  milestone: ["里程碑", "Milestone"],
+  acceleration: ["加速", "Accelerating"],
+  surge: ["日增爆发", "Daily surge"],
+};
 
 function MetricCard({ label, value, signal, detail, loading, warning = false }: { label: string; value: string; signal: string; detail: string; loading: boolean; warning?: boolean }) {
   return (

@@ -86,3 +86,22 @@ describe("alert rules", () => {
     expect(evaluateAlerts({ postId: "p1", previousViews: 1, currentViews: 30_001, currentDelta: 30_000, priorSixDeltas: [0, 0], day: "2026-10-08" })).toHaveLength(0);
   });
 });
+
+describe("re-ignited and surging posts", () => {
+  const now = Date.parse("2026-10-10T05:00:00.000Z");
+  it("captures an older post hourly again while its last day grew fast", () => {
+    const base = { publishedAtMs: now - 9 * 86_400_000, nowMs: now, views: 777_624, recentThreeHourDelta: 0 };
+    expect(cadenceForPost(base)).toMatchObject({ state: "daily" });
+    expect(cadenceForPost({ ...base, dayGrowth: { delta: 203_617, base: 574_007 } })).toMatchObject({ state: "active", intervalMs: 3_600_000 });
+    expect(cadenceForPost({ ...base, views: 9_000, dayGrowth: { delta: 3_000, base: 6_000 } })).toMatchObject({ state: "active" });
+    expect(cadenceForPost({ ...base, dayGrowth: { delta: 10_000, base: 767_624 } })).toMatchObject({ state: "daily" });
+  });
+
+  it("raises a daily surge without needing six earlier captures", () => {
+    const input = { postId: "p", previousViews: 574_007, currentViews: 777_624, currentDelta: 203_617, priorSixDeltas: [], day: "2026-10-10" };
+    expect(evaluateAlerts({ ...input, dayDelta: 203_617, prevDayDelta: null })).toEqual([{ rule: "surge", dedupeKey: "p:surge:2026-10-10", level: null }]);
+    expect(evaluateAlerts({ ...input, dayDelta: 30_000, prevDayDelta: 8_000 })).toEqual([expect.objectContaining({ rule: "surge" })]);
+    expect(evaluateAlerts({ ...input, dayDelta: 30_000, prevDayDelta: 20_000 })).toEqual([]);
+    expect(evaluateAlerts({ ...input, dayDelta: 8_000, prevDayDelta: 1_000 })).toEqual([]);
+  });
+});
