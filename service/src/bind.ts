@@ -88,3 +88,43 @@ export function bindPosts(db: ContentLabDatabase, limits: BindLimits, input: Bin
     throw error;
   }
 }
+
+const DAILY_WINDOW_MS = 24 * 60 * 60_000;
+
+/** New posts that can still be bound in the current rolling day. */
+export function remainingDailyQuota(db: ContentLabDatabase, limits: BindLimits, now = new Date()): number {
+  const row = db.prepare("SELECT window_started_at, count FROM rate_limits WHERE key='bind-global'").get() as { window_started_at: string; count: number } | undefined;
+  if (!row || Date.parse(row.window_started_at) + DAILY_WINDOW_MS <= now.getTime()) return limits.dailyNewPosts;
+  return Math.max(0, limits.dailyNewPosts - row.count);
+}
+
+/** Keep links that did not fit today's quota; they are bound in order as the quota frees up. Returns how many were new. */
+export function deferBinds(db: ContentLabDatabase, entries: Array<{ url: string; market: string }>, boundBy: string, now = new Date()): number {
+  const insert = db.prepare("INSERT OR IGNORE INTO pending_binds(url, market, bound_by, created_at) VALUES (?, ?, ?, ?)");
+  let added = 0;
+  for (const entry of entries) added += Number(insert.run(entry.url, entry.market, boundBy, now.toISOString()).changes);
+  return added;
+}
+
+export function pendingBindCounts(db: ContentLabDatabase): Record<string, number> {
+  return Object.fromEntries((db.prepare("SELECT market, COUNT(*) AS n FROM pending_binds GROUP BY market ORDER BY market").all() as Array<{ market: string; n: number }>).map((row) => [row.market, row.n]));
+}
+
+/** Bind the oldest waiting links that fit the quota left today; already-tracked ones are dropped without using quota. */
+export function drainPendingBinds(db: ContentLabDatabase, limits: BindLimits, now = new Date()): { queued: number; remaining: number } {
+  let queued = 0;
+  const left = remainingDailyQuota(db, limits, now);
+  if (left > 0) {
+    const rows = db.prepare("SELECT url, market, bound_by FROM pending_binds ORDER BY created_at, rowid LIMIT ?").all(left) as Array<{ url: string; market: string; bound_by: string | null }>;
+    const groups = new Map<string, typeof rows>();
+    for (const row of rows) groups.set(`${row.market}|${row.bound_by ?? ""}`, [...(groups.get(`${row.market}|${row.bound_by ?? ""}`) ?? []), row]);
+    const remove = db.prepare("DELETE FROM pending_binds WHERE url=?");
+    for (const group of groups.values()) {
+      const result = bindPosts(db, limits, { urls: group.map((row) => row.url), market: group[0]!.market, projectTag: null, boundBy: group[0]!.bound_by ?? "pending" }, now);
+      if (!result.ok) break;
+      queued += result.jobs.length;
+      for (const row of group) remove.run(row.url);
+    }
+  }
+  return { queued, remaining: (db.prepare("SELECT COUNT(*) AS n FROM pending_binds").get() as { n: number }).n };
+}

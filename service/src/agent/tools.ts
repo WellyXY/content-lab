@@ -4,7 +4,7 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
 import { latestPlaybook, renderPlaybookMarkdown } from "../analyzer/playbook.js";
-import { bindPosts, type BindLimits } from "../bind.js";
+import { bindPosts, deferBinds, pendingBindCounts, remainingDailyQuota, type BindLimits } from "../bind.js";
 import type { ContentLabDatabase } from "../db/database.js";
 import { extractVideoId, normalizeTikTokPostUrl } from "../domain/tiktok-url.js";
 import { marketFromCell, selectDocLinks, summarizeDocument } from "../feishu/doc-links.js";
@@ -135,20 +135,35 @@ export function createAgentTools(context: AgentToolContext) {
     }
     const totalNew = Object.values(byMarket).reduce((sum, item) => sum + item.new, 0);
     if (!confirm) return ok({ bound: false, title, byMarket, invalid, noMarket, totalNew, ...extra, note: "这是计划，还没有绑定。确认后用 confirm=true 再调用一次。invalid 是账号主页或不是帖子的链接；noMarket 是没有国家或市场的行，可以用 market 参数指定。" });
+    const { queued, scheduled, stoppedBy } = bindNowOrLater([...groups].map(([code, urls]) => ({ market: code, urls: urls.filter((candidate) => !tracked(candidate)) })));
+    return ok({
+      bound: true, title, queued, scheduled, notQueued: totalNew - queued - scheduled, stoppedBy, byMarket, invalid, noMarket,
+      note: [
+        queued ? "已排队的几分钟内开始抓取，之后自动分析；用 bind_status 看进度。" : "",
+        scheduled ? `超过每天 ${context.bindLimits.dailyNewPosts} 条上限的 ${scheduled} 条已排进待绑定，Content Lab 会在额度恢复后自动按顺序绑定，不需要再发一次。` : "",
+        stoppedBy ? "正在追踪的帖子数达到上限，剩下的没有绑定。" : "",
+      ].filter(Boolean).join(" "),
+    });
+  };
+
+  /** Bind what fits today's quota and keep the rest waiting for later days; stops only at the active-post cap. */
+  const bindNowOrLater = (groups: Array<{ market: string; urls: string[] }>): { queued: number; scheduled: number; stoppedBy: string | null } => {
     let queued = 0;
     let stoppedBy: string | null = null;
-    outer: for (const [code, urls] of groups) {
-      const fresh = urls.filter((candidate) => !tracked(candidate));
-      for (let index = 0; index < fresh.length; index += 50) {
-        const result = bindPosts(db, context.bindLimits, { urls: fresh.slice(index, index + 50), market: code, projectTag: null, boundBy: `agent:${context.channel}` });
-        if (!result.ok) { stoppedBy = result.error; break outer; }
+    const later: Array<{ url: string; market: string }> = [];
+    for (const group of groups) {
+      let index = 0;
+      while (index < group.urls.length && !stoppedBy) {
+        const room = Math.min(50, remainingDailyQuota(db, context.bindLimits));
+        if (room === 0) break;
+        const result = bindPosts(db, context.bindLimits, { urls: group.urls.slice(index, index + room), market: group.market, projectTag: null, boundBy: `agent:${context.channel}` });
+        if (!result.ok) { if (result.error !== "daily_quota_exceeded") stoppedBy = result.error; break; }
         queued += result.jobs.length;
+        index += room;
       }
+      if (!stoppedBy) later.push(...group.urls.slice(index).map((url) => ({ url, market: group.market })));
     }
-    return ok({
-      bound: true, title, queued, notQueued: totalNew - queued, stoppedBy, byMarket, invalid, noMarket,
-      note: stoppedBy === "daily_quota_exceeded" ? `达到每天 ${context.bindLimits.dailyNewPosts} 条的新增上限，剩下的明天再用同一个文档调用一次即可，已绑定的会自动跳过。` : stoppedBy ? "正在追踪的帖子数达到上限，剩下的没有绑定。" : "全部排队，几分钟内开始抓取，之后自动分析。",
-    });
+    return { queued, scheduled: later.length ? deferBinds(db, later, `agent:${context.channel}`) : 0, stoppedBy };
   };
 
   /** A document's tabs as SQL tables; the document itself is cached for ten minutes so a plan and its confirmation read the same data. */
@@ -293,10 +308,16 @@ tags_json: {dimension: {value, confidence}}; use json_extract.`, { sql: z.string
         try { normalized.push(normalizeTikTokPostUrl(url)); } catch (error) { invalid.push({ url, reason: error instanceof Error ? error.message : String(error) }); }
       }
       if (normalized.length === 0) return fail(`没有可绑定的 TikTok 链接：${JSON.stringify(invalid)}`);
-      const result = bindPosts(db, context.bindLimits, { urls: normalized, market, projectTag: projectTag || null, boundBy: `agent:${context.channel}` });
-      if (!result.ok) return fail(result.error === "daily_quota_exceeded" ? `今日新增帖子已达 ${result.limit} 条上限。` : `正在追踪的帖子已达 ${result.limit} 条上限。`);
+      // Duplicates and tracked posts never take quota or a place in the waiting list.
+      const unique = [...new Set(normalized)];
+      const tracked = unique.filter((candidate) => resolvePost(db, candidate) !== null);
+      const fresh = unique.filter((candidate) => !tracked.includes(candidate));
+      const room = remainingDailyQuota(db, context.bindLimits);
+      const result = bindPosts(db, context.bindLimits, { urls: fresh.slice(0, room), market, projectTag: projectTag || null, boundBy: `agent:${context.channel}` });
+      if (!result.ok && result.error !== "daily_quota_exceeded") return fail(`正在追踪的帖子已达 ${result.limit} 条上限。`);
+      const scheduled = deferBinds(db, fresh.slice(result.ok ? room : 0).map((url) => ({ url, market })), `agent:${context.channel}`);
       return ok({
-        queued: result.jobs, alreadyTracked: result.alreadyTracked, invalid,
+        queued: result.ok ? result.jobs : [], alreadyTracked: tracked, invalid, scheduledForLater: scheduled,
         note: "新帖子会在几分钟内抓取并开始每小时追踪，之后自动分析和评估（约 10–30 分钟）。已在追踪的帖子不会重复绑定，也不会改变它们的市场。",
       });
     }),
@@ -369,6 +390,19 @@ tags_json: {dimension: {value, confidence}}; use json_extract.`, { sql: z.string
         return [...new Set(text.match(TIKTOK_URL) ?? [])].map((link) => ({ url: link, market: rowMarket }));
       });
       return planAndBind(links, market, confirm, loaded.title, { rows: rows.length });
+    }),
+
+    tool("bind_status", "Progress of recent binds: ingest jobs from the last 24 hours (queued, running, done, failed), links waiting for tomorrow's quota per market, quota left today and when it resets, and how many new posts still await analysis.", {}, async () => {
+      used("bind_status");
+      const since = new Date(Date.now() - 86_400_000).toISOString();
+      const ingest = Object.fromEntries((db.prepare("SELECT status, COUNT(*) AS n FROM jobs WHERE kind='ingest' AND created_at >= ? GROUP BY status").all(since) as Array<{ status: string; n: number }>).map((row) => [row.status === "succeeded" ? "done" : row.status === "dead" ? "failed" : row.status, row.n]));
+      const window = db.prepare("SELECT window_started_at FROM rate_limits WHERE key='bind-global'").get() as { window_started_at: string } | undefined;
+      const analyses = (db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE kind='analyze' AND status IN ('queued','running')").get() as { n: number }).n;
+      return ok({
+        ingest, waitingForQuota: pendingBindCounts(db), quotaLeftToday: remainingDailyQuota(db, context.bindLimits),
+        quotaResetsAt: window ? new Date(Date.parse(window.window_started_at) + 86_400_000).toISOString() : null, analysesWaiting: analyses,
+        note: "ingest 是抓取入库；入库后再排队分析。待绑定的会在额度恢复后自动绑定。",
+      });
     }),
 
     tool("queue_reanalysis", "Re-run the full analysis (frames, transcript, tags, timed script, assessment) for one post, e.g. after a memory changes how it should be tagged.", { post: z.string().min(4) }, async ({ post }) => {

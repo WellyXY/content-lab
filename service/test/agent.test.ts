@@ -113,8 +113,9 @@ describe("binding posts from the agent", () => {
       expect(body.invalid).toHaveLength(1);
       const job = db.prepare("SELECT payload_json FROM jobs WHERE kind='ingest'").get() as { payload_json: string };
       expect(JSON.parse(job.payload_json)).toMatchObject({ market: "VN", boundBy: "agent:feishu" });
+      // Over the daily quota the links wait and are bound automatically later.
       const over = await bind.handler({ market: "VN", urls: ["https://www.tiktok.com/@c/video/7488888888888888888", "https://www.tiktok.com/@d/video/7477777777777777777"] }, {});
-      expect(over.isError).toBe(true);
+      expect(JSON.parse((over.content[0] as { text: string }).text)).toMatchObject({ queued: [{ url: "https://www.tiktok.com/@c/video/7488888888888888888" }], scheduledForLater: 1 });
       tools.close();
     } finally {
       db.close();
@@ -254,8 +255,8 @@ describe("binding from a Feishu sheet", () => {
     expect(plan).toMatchObject({ bound: false, invalid: 1, noMarket: 1 });
     expect(plan.byMarket.VN!.new).toBe(600);
     expect(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE kind='ingest'").get()).toEqual({ n: 0 });
-    const done = JSON.parse((await run("bind_feishu_doc", { url: "https://acme.feishu.cn/sheets/Sht0000000001", confirm: true })).text) as { bound: boolean; queued: number; notQueued: number; stoppedBy: string | null };
-    expect(done).toMatchObject({ bound: true, queued: 300, notQueued: 900, stoppedBy: "daily_quota_exceeded" });
+    const done = JSON.parse((await run("bind_feishu_doc", { url: "https://acme.feishu.cn/sheets/Sht0000000001", confirm: true })).text) as { bound: boolean; queued: number; scheduled: number; notQueued: number; stoppedBy: string | null };
+    expect(done).toMatchObject({ bound: true, queued: 300, scheduled: 900, notQueued: 0, stoppedBy: null });
     expect(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE kind='ingest'").get()).toEqual({ n: 300 });
     tools.close(); db.close(); rmSync(dir, { recursive: true, force: true });
   });
@@ -345,5 +346,24 @@ describe("conversation memory in groups", () => {
     expect(resumableSession(db, "feishu:p2p:ou_a", new Date("2026-10-14T21:45:00.000Z"))).toBe("s-feishu:p2p:ou_a");
     expect(resumableSession(db, "feishu:group:oc:ou_b", new Date())).toBeNull();
     db.close();
+  });
+});
+
+describe("binding past the daily quota from a sheet", () => {
+  it("binds up to the quota now, schedules the rest, and reports progress", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "content-lab-defer-"));
+    const dbPath = join(dir, "test.sqlite");
+    const db = openDatabase(dbPath);
+    const link = (id: number) => `https://www.tiktok.com/@k/video/7470000000000${String(id).padStart(6, "0")}`;
+    const lines = ["Area\tLink", ...Array.from({ length: 12 }, (_, index) => `${index % 2 ? "TH" : "ID"}\t${link(index)}`)];
+    const tools = createAgentTools({ db, dbPath, channel: "feishu", author: "ou_x", threadKey: "t", role: "member", bindLimits: { dailyNewPosts: 5, maxActivePosts: 1_000 },
+      readFeishuDoc: async () => ({ kind: "sheet", title: "KOL", text: "", truncated: false, tiktokUrls: [], lines }) });
+    const run = async (name: string, input: Record<string, unknown>) => JSON.parse((((await tools.tools.find((item) => item.name === name)!.handler(input as never, {})).content[0]) as { text: string }).text);
+    const done = await run("bind_feishu_doc", { url: "https://acme.feishu.cn/sheets/Sht0000000001", confirm: true });
+    expect(done).toMatchObject({ bound: true, queued: 5, scheduled: 7, stoppedBy: null });
+    const status = await run("bind_status", {});
+    // Markets are bound one after another: ID fills today's quota first.
+    expect(status).toMatchObject({ waitingForQuota: { ID: 1, TH: 6 }, quotaLeftToday: 0, ingest: { queued: 5 } });
+    tools.close(); db.close(); rmSync(dir, { recursive: true, force: true });
   });
 });

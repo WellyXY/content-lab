@@ -15,6 +15,7 @@ import { TikTokProvider } from "./providers/tiktok.js";
 import { runProxyCall } from "./ads/proxy.js";
 import { adsSyncDue } from "./ads/schedule.js";
 import { runAdsSync } from "./ads/sync.js";
+import { drainPendingBinds } from "./bind.js";
 import { failStaleRecreations, runRecreation } from "./recreate/run.js";
 import { runSchedulerCycle } from "./scheduler.js";
 import { flushSyncOutbox, pullRemoteJobs, SiteSyncClient } from "./sync/client.js";
@@ -250,6 +251,8 @@ export async function runWorkerCycle(): Promise<void> {
     catch (error) { log("site_pull_failed", { error: error instanceof Error ? error.message : String(error) }); }
   }
   log("scheduler_cycle", { ...runSchedulerCycle(db) });
+  const pending = drainPendingBinds(db, config);
+  if (pending.queued) log("pending_binds_queued", pending);
   const adsKey = adsSyncDue(new Date());
   if (adsKey) enqueueJob(db, { kind: "ads_sync", payload: {}, idempotencyKey: adsKey, maxAttempts: 2 });
   const staleRecreations = failStaleRecreations(db);

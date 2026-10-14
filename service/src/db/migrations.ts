@@ -164,6 +164,11 @@ const MIGRATIONS = [
     id TEXT PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT, calls INTEGER NOT NULL, status TEXT NOT NULL, error TEXT
   ) STRICT;
   `,
+  `
+  CREATE TABLE pending_binds (
+    url TEXT PRIMARY KEY, market TEXT NOT NULL, bound_by TEXT, created_at TEXT NOT NULL
+  ) STRICT;
+  `,
 ] as const;
 
 export function migrate(db: DatabaseSync): void {
