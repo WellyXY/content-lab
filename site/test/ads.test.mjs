@@ -42,3 +42,8 @@ test("IQ is a market with Baghdad time", () => {
   const source = readFileSync(new URL("../lib/content-lab.ts", import.meta.url), "utf8");
   assert.match(source, /\{ code: "IQ", label: "伊拉克", labelEn: "Iraq", timezone: "UTC\+3" \}/);
 });
+
+test("PH is a market with Manila time", () => {
+  const source = readFileSync(new URL("../lib/content-lab.ts", import.meta.url), "utf8");
+  assert.match(source, /\{ code: "PH", label: "菲律宾", labelEn: "Philippines", timezone: "UTC\+8" \}/);
+});

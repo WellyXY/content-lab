@@ -25,8 +25,8 @@ export interface ComputedFeatures {
   publish_weekday_local: number | null;
 }
 
-/** Local day boundaries per market; GCC uses Riyadh time, IQ Baghdad time. */
-export const MARKET_UTC_OFFSET_HOURS: Record<string, number> = { ID: 7, VN: 7, TR: 3, GCC: 3, TH: 7, IQ: 3 };
+/** Local day boundaries per market; GCC uses Riyadh time, IQ Baghdad time, PH Manila time. */
+export const MARKET_UTC_OFFSET_HOURS: Record<string, number> = { ID: 7, VN: 7, TR: 3, GCC: 3, TH: 7, IQ: 3, PH: 8 };
 
 /** TikTok labels a creator's own audio as "original sound" in each market's language. */
 const ORIGINAL_SOUND = /original sound|nhạc nền|âm thanh gốc|orijinal ses|suara asli|เสียงต้นฉบับ|الصوت الأصلي|som original|sonido original|оригинальный звук/i;

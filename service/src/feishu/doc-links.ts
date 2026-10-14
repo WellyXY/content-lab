@@ -8,6 +8,7 @@ const MARKET_ALIASES: Record<string, string[]> = {
   GCC: ["gcc", "海湾", "海灣", "海湾地区", "saudi", "saudi arabia", "ksa", "沙特", "沙特阿拉伯", "uae", "阿联酋", "阿聯酋", "kuwait", "科威特", "qatar", "卡塔尔", "卡達"],
   TH: ["th", "thailand", "泰国", "泰國"],
   IQ: ["iq", "iraq", "伊拉克"],
+  PH: ["ph", "philippines", "pilipinas", "菲律宾", "菲律賓"],
 };
 const LOOKUP = new Map(Object.entries(MARKET_ALIASES).flatMap(([market, names]) => names.map((name) => [name, market] as const)));
 const MARKET_HEADER = /国家|國家|市场|市場|地区|地區|country|market|region|area|geo|nation/i;

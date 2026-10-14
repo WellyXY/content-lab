@@ -8,6 +8,7 @@ export const MARKETS = [
   { code: "GCC", label: "海湾地区", labelEn: "GCC", timezone: "UTC+3" },
   { code: "TH", label: "泰国", labelEn: "Thailand", timezone: "UTC+7" },
   { code: "IQ", label: "伊拉克", labelEn: "Iraq", timezone: "UTC+3" },
+  { code: "PH", label: "菲律宾", labelEn: "Philippines", timezone: "UTC+8" },
 ] as const;
 export type MarketCode = (typeof MARKETS)[number]["code"];
 export const MARKET_CODES = MARKETS.map((market) => market.code) as [MarketCode, ...MarketCode[]];

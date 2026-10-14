@@ -309,3 +309,24 @@ describe("querying and binding a sheet with SQL", () => {
     tools.close(); db.close(); rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe("PH market", () => {
+  it("is a market everywhere: day boundaries, languages, captions, binding and sheet country names", async () => {
+    const { MARKET_UTC_OFFSET_HOURS } = await import("../src/domain/features.js");
+    const { MARKET_LANGUAGES } = await import("../src/analyzer/transcribe.js");
+    const { buildRecreateBrief } = await import("../src/recreate/brief.js");
+    const { marketFromCell } = await import("../src/feishu/doc-links.js");
+    expect(MARKET_UTC_OFFSET_HOURS.PH).toBe(8);
+    expect(MARKET_LANGUAGES.PH).toEqual(expect.arrayContaining(["tl", "en"]));
+    expect(buildRecreateBrief({ postId: "p", market: "PH", durationS: 10, caption: null, transcript: null, script: [], assessment: null, playbookSummary: null, memories: "" })).toContain("Tagalog (tl)");
+    for (const name of ["PH", "Philippines", "菲律宾", "菲律賓"]) expect(marketFromCell(name)).toBe("PH");
+    expect(marketFromCell("MENA")).toBeNull();
+    const dir = mkdtempSync(join(tmpdir(), "content-lab-ph-"));
+    const dbPath = join(dir, "test.sqlite");
+    const db = openDatabase(dbPath);
+    const tools = createAgentTools({ db, dbPath, channel: "feishu", author: "ou_owner", threadKey: "t", bindLimits: { dailyNewPosts: 10, maxActivePosts: 10 } });
+    const bind = tools.tools.find((item) => item.name === "bind_posts")!;
+    expect((bind.inputSchema as unknown as { market: { safeParse: (value: unknown) => { success: boolean } } }).market.safeParse("PH").success).toBe(true);
+    tools.close(); db.close(); rmSync(dir, { recursive: true, force: true });
+  });
+});

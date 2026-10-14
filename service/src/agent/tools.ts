@@ -21,7 +21,7 @@ export const AGENT_DAILY_JOB_LIMIT = 30;
 type Text = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 const ok = (value: unknown): Text => ({ content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value) }] });
 const fail = (message: string): Text => ({ content: [{ type: "text", text: message }], isError: true });
-const MARKET = z.enum(["ID", "VN", "TR", "GCC", "TH", "IQ"]).describe("Market code: ID Indonesia, VN Vietnam, TR Türkiye, GCC Gulf, TH Thailand, IQ Iraq");
+const MARKET = z.enum(["ID", "VN", "TR", "GCC", "TH", "IQ", "PH"]).describe("Market code: ID Indonesia, VN Vietnam, TR Türkiye, GCC Gulf, TH Thailand, IQ Iraq, PH Philippines");
 
 export interface AgentToolContext {
   db: ContentLabDatabase;
