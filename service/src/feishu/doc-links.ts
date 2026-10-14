@@ -20,10 +20,10 @@ export function marketFromCell(value: string | undefined): string | null {
 }
 
 export interface DocLink { url: string; market: string | null }
-interface Section { title: string; header: string[]; rows: string[][] }
+export interface Section { title: string; header: string[]; rows: string[][] }
 
 /** Sheets and bases come as "## <tab>" sections whose first row is the header; a single tab or a document has none. */
-function sections(doc: FeishuDocument): Section[] {
+export function docSections(doc: FeishuDocument): Section[] {
   const tabular = doc.kind !== "docx";
   const result: Section[] = [];
   let current: Section | null = null;
@@ -38,7 +38,7 @@ function sections(doc: FeishuDocument): Section[] {
 }
 
 export function sheetTabs(doc: FeishuDocument): Array<{ title: string; rows: number; header: string[]; sample: string[] }> {
-  return sections(doc).map((section) => ({ title: section.title, rows: section.rows.length, header: section.header, sample: (section.rows[0] ?? []).map((cell) => cell.slice(0, 80)) }));
+  return docSections(doc).map((section) => ({ title: section.title, rows: section.rows.length, header: section.header, sample: (section.rows[0] ?? []).map((cell) => cell.slice(0, 80)) }));
 }
 
 /** A cell as a date: spreadsheet serial numbers, ISO-like dates, day/month/year, or Unix timestamps. */
@@ -81,13 +81,13 @@ export interface RowSelection {
  * each with its market from the country column, else from the tab name.
  */
 export function selectDocLinks(doc: FeishuDocument, selection: RowSelection = {}): { links: DocLink[]; marketColumn: boolean; excluded: { byFilter: number; byDate: number; noDate: number } } {
-  let chosen = sections(doc);
+  let chosen = docSections(doc);
   if (selection.tab) {
     const wanted = selection.tab.trim().toLowerCase();
     const exact = chosen.filter((section) => section.title.trim().toLowerCase() === wanted);
     const partial = chosen.filter((section) => section.title.toLowerCase().includes(wanted));
     chosen = exact.length ? exact : partial;
-    if (!chosen.length) throw new Error(`No tab named "${selection.tab}"; tabs: ${sections(doc).map((section) => section.title).join(", ")}`);
+    if (!chosen.length) throw new Error(`No tab named "${selection.tab}"; tabs: ${docSections(doc).map((section) => section.title).join(", ")}`);
   }
   const since = selection.days ? (selection.now ?? new Date()).getTime() - selection.days * DAY : null;
   const seen = new Set<string>();

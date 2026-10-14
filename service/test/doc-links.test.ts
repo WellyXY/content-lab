@@ -47,7 +47,7 @@ describe("links from a document", () => {
 import { selectDocLinks, sheetTabs } from "../src/feishu/doc-links.js";
 
 describe("choosing rows from a multi-tab sheet", () => {
-  // Excel serial 46300 = 2026-10-04; 46250 = 2026-08-15.
+  // Spreadsheet date numbers: 46300 = 2026-10-05, 46250 = 2026-08-16.
   const doc = sheet([
     "## 2025", "Creator\tArea\tChannel\tVideo Post Date\tLink", `a\tVN\tTT\t45700\t${url(1)}`,
     "## 2026", "Creator\tArea\tChannel\tVideo Post Date\tLink",

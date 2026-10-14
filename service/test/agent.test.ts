@@ -280,3 +280,32 @@ describe("binding a chosen slice of a sheet", () => {
     tools.close(); db.close(); rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe("querying and binding a sheet with SQL", () => {
+  it("shows the tables, answers a query, and binds the query's links per market after confirmation", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "content-lab-sql-"));
+    const dbPath = join(dir, "test.sqlite");
+    const db = openDatabase(dbPath);
+    const link = (id: number) => `https://www.tiktok.com/@k/video/7440000000000${String(id).padStart(6, "0")}`;
+    const lines = ["## 2026", "Creator\tArea\tChannel\tVideo Post Date\tLink", `b\tVN\tTT\t46300\t${link(2)}`, `c\tID\tTT\t46300\t${link(3)}`, `d\tID\tFB\t46300\t${link(4)}`, `e\tTR\tTT\t46000\t${link(5)}`, `f\tTR\tTT\t46300\thttps://www.tiktok.com/@profile`];
+    let reads = 0;
+    const tools = createAgentTools({ db, dbPath, channel: "feishu", author: "ou_x", threadKey: "t", role: "member", bindLimits: { dailyNewPosts: 300, maxActivePosts: 5_000 },
+      readFeishuDoc: async () => { reads += 1; return { kind: "sheet", title: "KOL", text: "", truncated: false, tiktokUrls: [], lines }; } });
+    const run = async (name: string, input: Record<string, unknown>) => {
+      const result = await tools.tools.find((item) => item.name === name)!.handler(input as never, {});
+      return { text: (result.content[0] as { text: string }).text, isError: result.isError === true };
+    };
+    const doc = "https://acme.feishu.cn/sheets/Sht0000000001";
+    const tables = JSON.parse((await run("query_feishu_doc", { url: doc })).text) as { tables: Array<{ table: string; columns: string[] }> };
+    expect(tables.tables[0]).toMatchObject({ table: "t1", columns: expect.arrayContaining(["Area", "Video Post Date", "_links"]) });
+    const sql = `SELECT _links AS link, market_of(Area) AS market FROM t1 WHERE Channel = 'TT' AND to_date("Video Post Date") >= '2026-09-14'`;
+    expect(JSON.parse((await run("query_feishu_doc", { url: doc, sql })).text)).toMatchObject({ count: 3 });
+    expect((await run("query_feishu_doc", { url: doc, sql: "DROP TABLE t1" })).isError).toBe(true);
+    const plan = JSON.parse((await run("bind_feishu_query", { url: doc, sql })).text) as { bound: boolean; byMarket: Record<string, { new: number }>; invalid: number };
+    expect(plan).toMatchObject({ bound: false, invalid: 1, byMarket: { VN: { new: 1, alreadyTracked: 0 }, ID: { new: 1, alreadyTracked: 0 } } });
+    const done = JSON.parse((await run("bind_feishu_query", { url: doc, sql, confirm: true })).text) as { queued: number };
+    expect(done.queued).toBe(2);
+    expect(reads).toBe(1);
+    tools.close(); db.close(); rmSync(dir, { recursive: true, force: true });
+  });
+});

@@ -7,7 +7,9 @@ import { latestPlaybook, renderPlaybookMarkdown } from "../analyzer/playbook.js"
 import { bindPosts, type BindLimits } from "../bind.js";
 import type { ContentLabDatabase } from "../db/database.js";
 import { extractVideoId, normalizeTikTokPostUrl } from "../domain/tiktok-url.js";
-import { selectDocLinks, summarizeDocument } from "../feishu/doc-links.js";
+import { marketFromCell, selectDocLinks, summarizeDocument } from "../feishu/doc-links.js";
+import { describeDocTables, loadDocTables, queryAllDocRows, queryDocTables } from "../feishu/doc-sql.js";
+import { TIKTOK_URL } from "../feishu/docs.js";
 import type { FeishuDocument } from "../feishu/docs.js";
 import { enqueueJob } from "../jobs/queue.js";
 import { addMemory, archiveMemory, listMemories } from "./memory.js";
@@ -80,6 +82,14 @@ function agentJobsToday(db: ContentLabDatabase): number {
   return (db.prepare("SELECT COUNT(*) AS count FROM jobs WHERE idempotency_key LIKE 'agent:%' AND created_at >= ?").get(since) as { count: number }).count;
 }
 
+/** Documents read per reader, so a plan and its confirmation see the same rows without reading twice. */
+const docCaches = new WeakMap<object, Map<string, { doc: FeishuDocument; at: number }>>();
+const docCache = (reader: object): Map<string, { doc: FeishuDocument; at: number }> => {
+  let cache = docCaches.get(reader);
+  if (!cache) { cache = new Map(); docCaches.set(reader, cache); }
+  return cache;
+};
+
 /** Tools that change the owner's memory or spend model quota. */
 export const OWNER_ONLY_TOOLS = new Set(["list_memories", "remember", "forget", "queue_reanalysis", "queue_reassessment", "queue_playbook", "refresh_ads"]);
 /** Manual Spark Ads refreshes on top of the daily run. */
@@ -100,6 +110,60 @@ export function createAgentTools(context: AgentToolContext) {
     if (agentJobsToday(db) >= AGENT_DAILY_JOB_LIMIT) return fail(`今日由 Agent 发起的任务已达 ${AGENT_DAILY_JOB_LIMIT} 个上限。`);
     const job = enqueueJob(db, { kind, payload, idempotencyKey: `agent:${key}:${new Date().toISOString().slice(0, 13)}` });
     return ok({ queued: true, jobId: job.id, kind, note: "任务已排队，worker 会在几分钟内处理；完成后可以再查询结果。" });
+  };
+
+  /** The plan for a set of document links (per market: new, already tracked; invalid; no market), or the binding itself when confirmed. */
+  const planAndBind = (links: Array<{ url: string; market: string | null }>, market: string | undefined, confirm: boolean, title: string | null, extra: Record<string, unknown>): Text => {
+    const groups = new Map<string, string[]>();
+    let invalid = 0;
+    let noMarket = 0;
+    for (const link of links) {
+      let normalized: string;
+      try { normalized = normalizeTikTokPostUrl(link.url); } catch { invalid += 1; continue; }
+      const target = link.market ?? market ?? null;
+      if (!target) { noMarket += 1; continue; }
+      groups.set(target, [...new Set([...(groups.get(target) ?? []), normalized])]);
+    }
+    const tracked = (candidate: string): boolean => {
+      const videoId = extractVideoId(candidate);
+      return Boolean(db.prepare("SELECT 1 FROM posts WHERE url=? OR (? IS NOT NULL AND video_id=?) LIMIT 1").get(candidate, videoId, videoId));
+    };
+    const byMarket: Record<string, { new: number; alreadyTracked: number }> = {};
+    for (const [code, urls] of groups) {
+      const already = urls.filter(tracked).length;
+      byMarket[code] = { new: urls.length - already, alreadyTracked: already };
+    }
+    const totalNew = Object.values(byMarket).reduce((sum, item) => sum + item.new, 0);
+    if (!confirm) return ok({ bound: false, title, byMarket, invalid, noMarket, totalNew, ...extra, note: "这是计划，还没有绑定。确认后用 confirm=true 再调用一次。invalid 是账号主页或不是帖子的链接；noMarket 是没有国家或市场的行，可以用 market 参数指定。" });
+    let queued = 0;
+    let stoppedBy: string | null = null;
+    outer: for (const [code, urls] of groups) {
+      const fresh = urls.filter((candidate) => !tracked(candidate));
+      for (let index = 0; index < fresh.length; index += 50) {
+        const result = bindPosts(db, context.bindLimits, { urls: fresh.slice(index, index + 50), market: code, projectTag: null, boundBy: `agent:${context.channel}` });
+        if (!result.ok) { stoppedBy = result.error; break outer; }
+        queued += result.jobs.length;
+      }
+    }
+    return ok({
+      bound: true, title, queued, notQueued: totalNew - queued, stoppedBy, byMarket, invalid, noMarket,
+      note: stoppedBy === "daily_quota_exceeded" ? `达到每天 ${context.bindLimits.dailyNewPosts} 条的新增上限，剩下的明天再用同一个文档调用一次即可，已绑定的会自动跳过。` : stoppedBy ? "正在追踪的帖子数达到上限，剩下的没有绑定。" : "全部排队，几分钟内开始抓取，之后自动分析。",
+    });
+  };
+
+  /** A document's tabs as SQL tables; the document itself is cached for ten minutes so a plan and its confirmation read the same data. */
+  const docTables = async (url: string): Promise<{ db: ReturnType<typeof loadDocTables>; title: string | null } | { error: string }> => {
+    if (!context.readFeishuDoc) return { error: "飞书未配置，无法读取文档。" };
+    const cache = docCache(context.readFeishuDoc);
+    const hit = cache.get(url);
+    let doc = hit && Date.now() - hit.at < 10 * 60_000 ? hit.doc : null;
+    if (!doc) {
+      try { doc = await context.readFeishuDoc(url, { allTabs: true }); } catch (error) {
+        return { error: `读取失败：${error instanceof Error ? error.message : String(error)}。如果是权限问题，请把文档分享给机器人应用，或设为组织内可阅读。` };
+      }
+      cache.set(url, { doc, at: Date.now() });
+    }
+    return { db: loadDocTables(doc), title: doc.title };
   };
 
   const allTools = [
@@ -268,41 +332,43 @@ tags_json: {dimension: {value, confidence}}; use json_extract.`, { sql: z.string
       } catch (error) {
         return fail(error instanceof Error ? error.message : String(error));
       }
-      const groups = new Map<string, string[]>();
-      let invalid = 0;
-      let noMarket = 0;
-      for (const link of selected.links) {
-        let normalized: string;
-        try { normalized = normalizeTikTokPostUrl(link.url); } catch { invalid += 1; continue; }
-        const target = link.market ?? market ?? null;
-        if (!target) { noMarket += 1; continue; }
-        groups.set(target, [...new Set([...(groups.get(target) ?? []), normalized])]);
+      return planAndBind(selected.links, market, confirm, doc.title, { excluded: selected.excluded });
+    }),
+
+    tool("query_feishu_doc", "Look inside a Feishu sheet, base or document with SQL. Without `sql` it lists the tables: one per tab (t1, t2…) with the sheet's own column names plus _row and _links (the TikTok links in that row). With `sql` it runs one read-only SELECT over them, up to 200 rows back. Helpers: to_date(column) turns spreadsheet date numbers and written dates into YYYY-MM-DD, market_of(column) turns a country name into ID/VN/TR/GCC/TH/IQ; date('now', '-30 days') works. Quote column names with spaces in double quotes. Use it for counts, checks and to work out the query for bind_feishu_query.", {
+      url: z.string().min(10).max(1000), sql: z.string().min(6).max(4_000).optional(),
+    }, async ({ url, sql }) => {
+      used("query_feishu_doc");
+      const loaded = await docTables(url);
+      if ("error" in loaded) return fail(loaded.error);
+      try {
+        if (!sql) return ok({ title: loaded.title, tables: describeDocTables(loaded.db) });
+        return ok(queryDocTables(loaded.db, sql));
+      } catch (error) {
+        return fail(`查询错误：${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        loaded.db.close();
       }
-      const tracked = (candidate: string): boolean => {
-        const videoId = extractVideoId(candidate);
-        return Boolean(db.prepare("SELECT 1 FROM posts WHERE url=? OR (? IS NOT NULL AND video_id=?) LIMIT 1").get(candidate, videoId, videoId));
-      };
-      const byMarket: Record<string, { new: number; alreadyTracked: number }> = {};
-      for (const [code, urls] of groups) {
-        const already = urls.filter(tracked).length;
-        byMarket[code] = { new: urls.length - already, alreadyTracked: already };
+    }),
+
+    tool("bind_feishu_query", "Bind the TikTok links returned by one SQL query over a Feishu sheet (same tables and helpers as query_feishu_doc). Every link found in a result row is bound; a `market` column in the result (a code or a country name, e.g. market_of(Area) AS market) sets its market, otherwise `market` applies. Without confirm=true it returns the plan (per market: new and already tracked; profile or invalid links; rows without a market); show it and call again with the same query and confirm=true once the person agrees. Stops at the daily quota.", {
+      url: z.string().min(10).max(1000), sql: z.string().min(6).max(4_000), market: MARKET.optional(), confirm: z.boolean().default(false),
+    }, async ({ url, sql, market, confirm }) => {
+      used("bind_feishu_query");
+      const loaded = await docTables(url);
+      if ("error" in loaded) return fail(loaded.error);
+      let rows;
+      try { rows = queryAllDocRows(loaded.db, sql); } catch (error) {
+        return fail(`查询错误：${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        loaded.db.close();
       }
-      const totalNew = Object.values(byMarket).reduce((sum, item) => sum + item.new, 0);
-      if (!confirm) return ok({ bound: false, title: doc.title, byMarket, invalid, noMarket, totalNew, excluded: selected.excluded, note: "这是计划，还没有绑定。确认后用 confirm=true 再调用一次。invalid 是账号主页或不是帖子的链接；noMarket 是没有国家或市场的行，可以用 market 参数指定。" });
-      let queued = 0;
-      let stoppedBy: string | null = null;
-      outer: for (const [code, urls] of groups) {
-        const fresh = urls.filter((candidate) => !tracked(candidate));
-        for (let index = 0; index < fresh.length; index += 50) {
-          const result = bindPosts(db, context.bindLimits, { urls: fresh.slice(index, index + 50), market: code, projectTag: null, boundBy: `agent:${context.channel}` });
-          if (!result.ok) { stoppedBy = result.error; break outer; }
-          queued += result.jobs.length;
-        }
-      }
-      return ok({
-        bound: true, title: doc.title, queued, notQueued: totalNew - queued, stoppedBy, byMarket, invalid, noMarket,
-        note: stoppedBy === "daily_quota_exceeded" ? `达到每天 ${context.bindLimits.dailyNewPosts} 条的新增上限，剩下的明天再用同一个文档调用一次即可，已绑定的会自动跳过。` : stoppedBy ? "正在追踪的帖子数达到上限，剩下的没有绑定。" : "全部排队，几分钟内开始抓取，之后自动分析。",
+      const links = rows.flatMap((row) => {
+        const rowMarket = typeof row.market === "string" ? marketFromCell(row.market) : null;
+        const text = Object.values(row).filter((value): value is string => typeof value === "string").join(" ");
+        return [...new Set(text.match(TIKTOK_URL) ?? [])].map((link) => ({ url: link, market: rowMarket }));
       });
+      return planAndBind(links, market, confirm, loaded.title, { rows: rows.length });
     }),
 
     tool("queue_reanalysis", "Re-run the full analysis (frames, transcript, tags, timed script, assessment) for one post, e.g. after a memory changes how it should be tagged.", { post: z.string().min(4) }, async ({ post }) => {
