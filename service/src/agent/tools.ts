@@ -4,7 +4,7 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
 import { latestPlaybook, renderPlaybookMarkdown } from "../analyzer/playbook.js";
-import { bindPosts, deferBinds, pendingBindCounts, remainingDailyQuota, type BindLimits } from "../bind.js";
+import { bindPosts, boundRef, deferBinds, pendingBindCounts, remainingDailyQuota, type BindLimits } from "../bind.js";
 import type { ContentLabDatabase } from "../db/database.js";
 import { extractVideoId, normalizeTikTokPostUrl } from "../domain/tiktok-url.js";
 import { marketFromCell, selectDocLinks, summarizeDocument } from "../feishu/doc-links.js";
@@ -124,10 +124,7 @@ export function createAgentTools(context: AgentToolContext) {
       if (!target) { noMarket += 1; continue; }
       groups.set(target, [...new Set([...(groups.get(target) ?? []), normalized])]);
     }
-    const tracked = (candidate: string): boolean => {
-      const videoId = extractVideoId(candidate);
-      return Boolean(db.prepare("SELECT 1 FROM posts WHERE url=? OR (? IS NOT NULL AND video_id=?) LIMIT 1").get(candidate, videoId, videoId));
-    };
+    const tracked = (candidate: string): boolean => boundRef(db, candidate) !== null;
     const byMarket: Record<string, { new: number; alreadyTracked: number }> = {};
     for (const [code, urls] of groups) {
       const already = urls.filter(tracked).length;
@@ -310,7 +307,7 @@ tags_json: {dimension: {value, confidence}}; use json_extract.`, { sql: z.string
       if (normalized.length === 0) return fail(`没有可绑定的 TikTok 链接：${JSON.stringify(invalid)}`);
       // Duplicates and tracked posts never take quota or a place in the waiting list.
       const unique = [...new Set(normalized)];
-      const tracked = unique.filter((candidate) => resolvePost(db, candidate) !== null);
+      const tracked = unique.filter((candidate) => boundRef(db, candidate) !== null);
       const fresh = unique.filter((candidate) => !tracked.includes(candidate));
       const room = remainingDailyQuota(db, context.bindLimits);
       const result = bindPosts(db, context.bindLimits, { urls: fresh.slice(0, room), market, projectTag: projectTag || null, boundBy: `agent:${context.channel}` });

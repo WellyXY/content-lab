@@ -45,15 +45,28 @@ function recordQuotaAlert(db: ContentLabDatabase, kind: string, payload: unknown
   if (result.changes > 0) putSyncEvent(db, "alert", id, { id, postId: null, rule: "ops_quota", firedAt, payload, deliveredAt: null }, firedAt);
 }
 
+const ingestKey = (url: string): string => `ingest:${createHash("sha256").update(url).digest("hex")}`;
+
+/**
+ * The post a link already points to, or its ingest job while it is being fetched or after it was fetched.
+ * Short links (vt.tiktok.com) are stored under their full URL, so only the job remembers them.
+ */
+export function boundRef(db: ContentLabDatabase, url: string): string | null {
+  const videoId = extractVideoId(url);
+  const row = db.prepare("SELECT id FROM posts WHERE url=? OR (? IS NOT NULL AND video_id=?) LIMIT 1").get(url, videoId, videoId) as { id: string } | undefined;
+  if (row) return row.id;
+  const job = db.prepare("SELECT id FROM jobs WHERE idempotency_key=? AND status != 'dead' LIMIT 1").get(ingestKey(url)) as { id: string } | undefined;
+  return job ? `job:${job.id}` : null;
+}
+
 /** Queue ingest jobs for new TikTok URLs under the shared daily and active-post quotas. */
 export function bindPosts(db: ContentLabDatabase, limits: BindLimits, input: BindInput, now = new Date()): BindResult {
   const urls = [...new Set(input.urls)];
   const alreadyTracked: Array<{ url: string; postId: string }> = [];
   const fresh: string[] = [];
   for (const url of urls) {
-    const videoId = extractVideoId(url);
-    const row = db.prepare("SELECT id FROM posts WHERE url=? OR (? IS NOT NULL AND video_id=?) LIMIT 1").get(url, videoId, videoId) as { id: string } | undefined;
-    if (row) alreadyTracked.push({ url, postId: row.id });
+    const ref = boundRef(db, url);
+    if (ref) alreadyTracked.push({ url, postId: ref });
     else fresh.push(url);
   }
   if (fresh.length === 0) return { ok: true, jobs: [], alreadyTracked };
@@ -79,7 +92,7 @@ export function bindPosts(db: ContentLabDatabase, limits: BindLimits, input: Bin
     const jobs = fresh.map((url) => enqueueJob(db, {
       kind: "ingest",
       payload: { url, market: input.market, projectTag: input.projectTag, boundBy: input.boundBy },
-      idempotencyKey: `ingest:${createHash("sha256").update(url).digest("hex")}`,
+      idempotencyKey: ingestKey(url),
     }));
     db.exec("COMMIT");
     return { ok: true, jobs: jobs.map((job) => ({ id: job.id, status: job.status, url: (job.payload as { url: string }).url })), alreadyTracked };
