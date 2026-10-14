@@ -18,6 +18,9 @@ describe("a Feishu sheet as SQL tables", () => {
     const tables = describeDocTables(db);
     expect(tables.map((table) => [table.table, table.tab, table.rows])).toEqual([["t1", "2025", 1], ["t2", "2026", 4]]);
     expect(tables[1]!.columns).toEqual(["Creator", "Area", "Channel", "Video Post Date", "Link", "Link_2", "_row", "_links"]);
+    // How full each column is and what it holds, so an almost empty date column is noticed.
+    expect(tables[1]!.columnStats.find((column) => column.name === "Link_2")).toEqual({ name: "Link_2", filled: 1, sample: "x", dates: 0 });
+    expect(tables[1]!.columnStats.find((column) => column.name === "Video Post Date")).toMatchObject({ filled: 4, dates: 4 });
     db.close();
   });
 

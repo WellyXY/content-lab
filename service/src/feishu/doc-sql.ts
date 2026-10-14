@@ -32,7 +32,7 @@ export function loadDocTables(doc: FeishuDocument): DatabaseSync {
     return time === null ? null : new Date(time).toISOString().slice(0, 10);
   });
   db.function("market_of", { deterministic: true }, (value: unknown) => marketFromCell(value === null || value === undefined ? undefined : String(value)));
-  db.exec("CREATE TABLE _tabs (table_name TEXT, tab TEXT, rows INTEGER, columns TEXT)");
+  db.exec("CREATE TABLE _tabs (table_name TEXT, tab TEXT, rows INTEGER, columns TEXT, stats TEXT)");
   docSections(doc).forEach((section, index) => {
     const table = `t${index + 1}`;
     const width = Math.max(section.header.length, ...section.rows.map((row) => row.length), 1);
@@ -43,7 +43,11 @@ export function loadDocTables(doc: FeishuDocument): DatabaseSync {
       const cells = Array.from({ length: width }, (_, cell) => row[cell] ?? null);
       insert.run(...cells, String(rowIndex + 1), (row.join("\t").match(TIKTOK_URL) ?? []).join(" ") || null);
     });
-    db.prepare("INSERT INTO _tabs VALUES (?, ?, ?, ?)").run(table, section.title, section.rows.length, JSON.stringify(columns));
+    const stats = columns.slice(0, width).map((name, index) => {
+      const values = section.rows.map((row) => (row[index] ?? "").trim()).filter(Boolean);
+      return { name, filled: values.length, sample: (values.at(-1) ?? "").slice(0, 60), dates: values.filter((value) => parseDate(value) !== null).length };
+    });
+    db.prepare("INSERT INTO _tabs VALUES (?, ?, ?, ?, ?)").run(table, section.title, section.rows.length, JSON.stringify(columns), JSON.stringify(stats));
   });
   const authorize = (db as unknown as { setAuthorizer?: (callback: (action: number) => number) => void }).setAuthorizer;
   if (typeof authorize !== "function") { db.close(); throw new Error("This Node.js has no SQLite authorizer; sheet queries are disabled"); }
@@ -51,9 +55,11 @@ export function loadDocTables(doc: FeishuDocument): DatabaseSync {
   return db;
 }
 
-export function describeDocTables(db: DatabaseSync): Array<{ table: string; tab: string; rows: number; columns: string[] }> {
-  return (db.prepare("SELECT table_name, tab, rows, columns FROM _tabs ORDER BY rowid").all() as Array<{ table_name: string; tab: string; rows: number; columns: string }>).map((row) => ({
+/** Tables with their columns and, per sheet column, how many rows are filled, the latest value and how many read as dates. */
+export function describeDocTables(db: DatabaseSync): Array<{ table: string; tab: string; rows: number; columns: string[]; columnStats: Array<{ name: string; filled: number; sample: string; dates: number }> }> {
+  return (db.prepare("SELECT table_name, tab, rows, columns, stats FROM _tabs ORDER BY rowid").all() as Array<{ table_name: string; tab: string; rows: number; columns: string; stats: string }>).map((row) => ({
     table: row.table_name, tab: row.tab, rows: Number(row.rows), columns: JSON.parse(row.columns) as string[],
+    columnStats: JSON.parse(row.stats) as Array<{ name: string; filled: number; sample: string; dates: number }>,
   }));
 }
 
