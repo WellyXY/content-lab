@@ -258,3 +258,25 @@ describe("binding from a Feishu sheet", () => {
     tools.close(); db.close(); rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe("binding a chosen slice of a sheet", () => {
+  it("binds only the 2026 tab's TikTok rows from the last 30 days, by Area", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "content-lab-slice-"));
+    const dbPath = join(dir, "test.sqlite");
+    const db = openDatabase(dbPath);
+    const link = (id: number) => `https://www.tiktok.com/@k/video/7420000000000${String(id).padStart(6, "0")}`;
+    const recent = 46_300 + Math.floor((Date.now() - Date.parse("2026-10-04T00:00:00Z")) / 86_400_000);
+    const lines = ["## 2025", "Creator\tArea\tChannel\tVideo Post Date\tLink", `a\tVN\tTT\t${recent}\t${link(1)}`,
+      "## 2026", "Creator\tArea\tChannel\tVideo Post Date\tLink", `b\tVN\tTT\t${recent}\t${link(2)}`, `c\tID\tTT\t${recent - 2}\t${link(3)}`, `d\tID\tFB\t${recent}\t${link(4)}`, `e\tTR\tTT\t${recent - 90}\t${link(5)}`];
+    let allTabs: boolean | undefined;
+    const tools = createAgentTools({ db, dbPath, channel: "feishu", author: "ou_x", threadKey: "t", role: "member", bindLimits: { dailyNewPosts: 300, maxActivePosts: 5_000 },
+      readFeishuDoc: async (_url, options) => { allTabs = options?.allTabs; return { kind: "sheet", title: "KOL", text: "", truncated: false, tiktokUrls: [], lines }; } });
+    const bind = tools.tools.find((item) => item.name === "bind_feishu_doc")!;
+    const result = await bind.handler({ url: "https://acme.feishu.cn/sheets/Sht0000000001?sheet=other", tab: "2026", filters: [{ column: "Channel", equals: "TT" }], days: 30, date_column: "Video Post Date", confirm: true } as never, {});
+    const body = JSON.parse((result.content[0] as { text: string }).text) as { queued: number; byMarket: Record<string, { new: number }> };
+    expect(allTabs).toBe(true);
+    expect(body.queued).toBe(2);
+    expect(body.byMarket).toEqual({ VN: { new: 1, alreadyTracked: 0 }, ID: { new: 1, alreadyTracked: 0 } });
+    tools.close(); db.close(); rmSync(dir, { recursive: true, force: true });
+  });
+});

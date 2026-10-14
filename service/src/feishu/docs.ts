@@ -78,8 +78,10 @@ async function paged(get: FeishuGet, path: string, params: Record<string, string
   return items.slice(0, limit);
 }
 
-export async function readFeishuDocument(get: FeishuGet, input: string): Promise<FeishuDocument> {
+export async function readFeishuDocument(get: FeishuGet, input: string, options: { allTabs?: boolean } = {}): Promise<FeishuDocument> {
   let ref = parseFeishuDocUrl(input);
+  // A link opened on one tab still lets the reader see every tab when asked.
+  if (options.allTabs) ref = { ...ref, sub: null };
   let title: string | null = null;
   if (ref.kind === "wiki") {
     const node = (await get("/open-apis/wiki/v2/spaces/get_node", { token: ref.token })).node as { obj_type: string; obj_token: string; title?: string };
@@ -98,7 +100,7 @@ export async function readFeishuDocument(get: FeishuGet, input: string): Promise
   } else if (ref.kind === "sheet") {
     const sheets = ((await get(`/open-apis/sheets/v3/spreadsheets/${ref.token}/sheets/query`)).sheets as Array<{ sheet_id: string; title: string }> | undefined) ?? [];
     const chosen = ref.sub ? sheets.filter((sheet) => sheet.sheet_id === ref.sub) : sheets;
-    for (const sheet of chosen.slice(0, 10)) {
+    for (const sheet of chosen.slice(0, 20)) {
       const range = (await get(`/open-apis/sheets/v2/spreadsheets/${ref.token}/values/${encodeURIComponent(`${sheet.sheet_id}!A1:Z${MAX_ROWS}`)}`)).valueRange as { values?: unknown[][] } | undefined;
       if (chosen.length > 1) lines.push(`## ${sheet.title}`);
       for (const row of range?.values ?? []) {
@@ -109,7 +111,7 @@ export async function readFeishuDocument(get: FeishuGet, input: string): Promise
   } else {
     const tables = await paged(get, `/open-apis/bitable/v1/apps/${ref.token}/tables`, { page_size: 100 }, 100) as Array<{ table_id: string; name: string }>;
     const chosen = ref.sub ? tables.filter((table) => table.table_id === ref.sub) : tables;
-    for (const table of chosen.slice(0, 10)) {
+    for (const table of chosen.slice(0, 20)) {
       const records = await paged(get, `/open-apis/bitable/v1/apps/${ref.token}/tables/${table.table_id}/records`, { page_size: 500 }, MAX_ROWS) as Array<{ fields: Record<string, unknown> }>;
       const columns = [...new Set(records.flatMap((record) => Object.keys(record.fields)))];
       if (chosen.length > 1) lines.push(`## ${table.name}`);
@@ -123,7 +125,7 @@ export async function readFeishuDocument(get: FeishuGet, input: string): Promise
 }
 
 /** A tenant-token client for the bot app; the document must be shared with the app or readable in the organization. */
-export function createFeishuDocReader(appId: string, appSecret: string): (url: string) => Promise<FeishuDocument> {
+export function createFeishuDocReader(appId: string, appSecret: string): (url: string, options?: { allTabs?: boolean }) => Promise<FeishuDocument> {
   const client = new lark.Client({ appId, appSecret, loggerLevel: lark.LoggerLevel.warn });
   const get: FeishuGet = async (path, params) => {
     let response: { code?: number; msg?: string; data?: Record<string, unknown> };
@@ -136,5 +138,5 @@ export function createFeishuDocReader(appId: string, appSecret: string): (url: s
     if (response.code !== 0) throw new Error(`飞书接口错误 ${response.code}: ${response.msg}`);
     return response.data ?? {};
   };
-  return (url) => readFeishuDocument(get, url);
+  return (url, options) => readFeishuDocument(get, url, options);
 }

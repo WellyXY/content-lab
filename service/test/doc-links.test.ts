@@ -25,7 +25,7 @@ describe("links from a document", () => {
     const doc = sheet(["## 越南", "达人\t国家\t链接", `a\t越南\t${url(1)}`, `b\tVN\t视频 ${url(2)}`, "## 土耳其", "creator\tcountry\tlink", `c\tTürkiye\t${url(3)}`, `d\t\t${url(4)}`, `e\tTR\thttps://www.tiktok.com/@someone`]);
     const result = extractDocLinks(doc);
     expect(result.links).toEqual([
-      { url: url(1), market: "VN" }, { url: url(2), market: "VN" }, { url: url(3), market: "TR" }, { url: url(4), market: null }, { url: "https://www.tiktok.com/@someone", market: "TR" },
+      { url: url(1), market: "VN" }, { url: url(2), market: "VN" }, { url: url(3), market: "TR" }, { url: url(4), market: "TR" }, { url: "https://www.tiktok.com/@someone", market: "TR" },
     ]);
     expect(result.marketColumn).toBe(true);
   });
@@ -41,5 +41,36 @@ describe("links from a document", () => {
     expect(JSON.stringify(summary).length).toBeLessThan(8_000);
     expect(summary).toMatchObject({ rows: 2_001, links: 2_000, linksByMarket: { VN: 2_000 }, marketColumn: true });
     expect(summary.preview.split("\n").length).toBeLessThanOrEqual(21);
+  });
+});
+
+import { selectDocLinks, sheetTabs } from "../src/feishu/doc-links.js";
+
+describe("choosing rows from a multi-tab sheet", () => {
+  // Excel serial 46300 = 2026-10-04; 46250 = 2026-08-15.
+  const doc = sheet([
+    "## 2025", "Creator\tArea\tChannel\tVideo Post Date\tLink", `a\tVN\tTT\t45700\t${url(1)}`,
+    "## 2026", "Creator\tArea\tChannel\tVideo Post Date\tLink",
+    `b\tVietnam\tTT\t46300\t${url(2)}`, `c\tTR\tFB\t46300\t${url(3)}`, `d\tID\tTT\t46250\t${url(4)}`, `e\tTR\tTT\t2026-10-01\t${url(5)}`, `f\tTR\tTT\t\t${url(6)}`,
+    "## ID-TT-KOL", "Creator\tLink", `g\t${url(7)}`,
+  ]);
+  const now = new Date("2026-10-14T12:00:00Z");
+
+  it("lists the tabs with their headers so the agent can pick columns", () => {
+    expect(sheetTabs(doc).map((tab) => [tab.title, tab.rows, tab.header.join("|")])).toEqual([["2025", 1, "Creator|Area|Channel|Video Post Date|Link"], ["2026", 5, "Creator|Area|Channel|Video Post Date|Link"], ["ID-TT-KOL", 1, "Creator|Link"]]);
+  });
+
+  it("filters by tab, channel and post date, and reads the market from Area", () => {
+    const result = selectDocLinks(doc, { tab: "2026", filters: [{ column: "Channel", equals: "TT" }], dateColumn: "Video Post Date", days: 30, now });
+    expect(result.links).toEqual([{ url: url(2), market: "VN" }, { url: url(5), market: "TR" }]);
+    expect(result.excluded).toMatchObject({ byFilter: 1, byDate: 1, noDate: 1 });
+  });
+
+  it("takes the market from the tab name when rows have no country", () => {
+    expect(selectDocLinks(doc, { tab: "ID-TT-KOL", now }).links).toEqual([{ url: url(7), market: "ID" }]);
+  });
+
+  it("refuses a column that is not in the tab", () => {
+    expect(() => selectDocLinks(doc, { tab: "2026", dateColumn: "Posted", days: 30, now })).toThrow(/Posted/);
   });
 });
