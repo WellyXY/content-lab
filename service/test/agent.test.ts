@@ -231,3 +231,30 @@ describe("IQ market", () => {
     tools.close(); db.close(); rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe("binding from a Feishu sheet", () => {
+  it("summarizes a big sheet, then binds its links per market only after confirmation", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "content-lab-docbind-"));
+    const dbPath = join(dir, "test.sqlite");
+    const db = openDatabase(dbPath);
+    const link = (id: number) => `https://www.tiktok.com/@k/video/7410000000000${String(id).padStart(6, "0")}`;
+    const lines = ["达人\t国家\t链接", ...Array.from({ length: 1_200 }, (_, index) => `k${index}\t${index % 2 ? "越南" : "TR"}\t${link(index)}`), "x\t越南\thttps://www.tiktok.com/@onlyaprofile", `y\t\t${link(5_000)}`];
+    const doc = { kind: "sheet" as const, title: "KOL", text: lines.join("\n").slice(0, 40_000), truncated: true, tiktokUrls: [], lines };
+    const tools = createAgentTools({ db, dbPath, channel: "feishu", author: "ou_x", threadKey: "t", role: "member", bindLimits: { dailyNewPosts: 300, maxActivePosts: 5_000 }, readFeishuDoc: async () => doc });
+    const run = async (name: string, input: Record<string, unknown>) => {
+      const result = await tools.tools.find((item) => item.name === name)!.handler(input as never, {});
+      return { text: (result.content[0] as { text: string }).text, isError: result.isError === true };
+    };
+    const read = await run("read_feishu_doc", { url: "https://acme.feishu.cn/sheets/Sht0000000001" });
+    expect(read.text.length).toBeLessThan(8_000);
+    expect(JSON.parse(read.text)).toMatchObject({ links: 1_202, linksByMarket: { TR: 600, VN: 601, unknown: 1 } });
+    const plan = JSON.parse((await run("bind_feishu_doc", { url: "https://acme.feishu.cn/sheets/Sht0000000001" })).text) as { bound: boolean; byMarket: Record<string, { new: number }>; invalid: number; noMarket: number };
+    expect(plan).toMatchObject({ bound: false, invalid: 1, noMarket: 1 });
+    expect(plan.byMarket.VN!.new).toBe(600);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE kind='ingest'").get()).toEqual({ n: 0 });
+    const done = JSON.parse((await run("bind_feishu_doc", { url: "https://acme.feishu.cn/sheets/Sht0000000001", confirm: true })).text) as { bound: boolean; queued: number; notQueued: number; stoppedBy: string | null };
+    expect(done).toMatchObject({ bound: true, queued: 300, notQueued: 900, stoppedBy: "daily_quota_exceeded" });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE kind='ingest'").get()).toEqual({ n: 300 });
+    tools.close(); db.close(); rmSync(dir, { recursive: true, force: true });
+  });
+});

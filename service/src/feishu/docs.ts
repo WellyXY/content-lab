@@ -10,12 +10,14 @@ export interface FeishuDocument {
   text: string;
   truncated: boolean;
   tiktokUrls: string[];
+  /** Every line, untruncated: for program-side processing only, never for the model. */
+  lines: string[];
 }
 
 const DOC_HOSTS = /(^|\.)(feishu\.cn|feishu\.net|larksuite\.com|larkoffice\.com)$/i;
 const MAX_TEXT = 40_000;
 const MAX_ROWS = 2_000;
-const TIKTOK_URL = /https:\/\/(?:[a-z0-9-]+\.)*tiktok\.com\/[^\s"'<>，。、；）)\]]+/gi;
+export const TIKTOK_URL = /https:\/\/(?:[a-z0-9-]+\.)*tiktok\.com\/[^\s"'<>，。、；）)\]]+/gi;
 
 export type FeishuDocRef = { kind: "docx" | "sheet" | "bitable" | "wiki"; token: string; sub: string | null };
 
@@ -117,7 +119,7 @@ export async function readFeishuDocument(get: FeishuGet, input: string): Promise
   }
   const full = lines.join("\n");
   const tiktokUrls = [...new Set(full.match(TIKTOK_URL) ?? [])];
-  return { kind: ref.kind as FeishuDocument["kind"], title, text: full.slice(0, MAX_TEXT), truncated: full.length > MAX_TEXT, tiktokUrls };
+  return { kind: ref.kind as FeishuDocument["kind"], title, text: full.slice(0, MAX_TEXT), truncated: full.length > MAX_TEXT, tiktokUrls, lines };
 }
 
 /** A tenant-token client for the bot app; the document must be shared with the app or readable in the organization. */
