@@ -43,8 +43,11 @@ export function sheetTabs(doc: FeishuDocument): Array<{ title: string; rows: num
 
 /** A cell as a date: spreadsheet serial numbers, ISO-like dates, day/month/year, or Unix timestamps. */
 export function parseDate(value: string | undefined): number | null {
-  const text = (value ?? "").trim();
+  // "Thursday 20260917", "Friday, 2026-09-18": drop a leading weekday; "2026 - 09 - 18": drop spaces around separators.
+  const text = (value ?? "").trim().replace(/^[A-Za-z]+,?\s+(?=\d)/, "").replace(/\s*([-/.])\s*/g, "$1");
   if (!text) return null;
+  const compact = text.match(/^(20\d{2})(\d{2})(\d{2})$/);
+  if (compact) return Date.UTC(Number(compact[1]), Number(compact[2]) - 1, Number(compact[3]));
   if (/^\d+(\.\d+)?$/.test(text)) {
     const number = Number(text);
     if (number >= 20_000 && number <= 80_000) return Date.UTC(1899, 11, 30) + Math.floor(number) * DAY;

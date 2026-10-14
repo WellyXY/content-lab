@@ -101,7 +101,8 @@ export async function readFeishuDocument(get: FeishuGet, input: string, options:
     const sheets = ((await get(`/open-apis/sheets/v3/spreadsheets/${ref.token}/sheets/query`)).sheets as Array<{ sheet_id: string; title: string }> | undefined) ?? [];
     const chosen = ref.sub ? sheets.filter((sheet) => sheet.sheet_id === ref.sub) : sheets;
     for (const sheet of chosen.slice(0, 20)) {
-      const range = (await get(`/open-apis/sheets/v2/spreadsheets/${ref.token}/values/${encodeURIComponent(`${sheet.sheet_id}!A1:Z${MAX_ROWS}`)}`)).valueRange as { values?: unknown[][] } | undefined;
+      // Computed values: formula cells (dates built with DATE(), IMPORTRANGE) would otherwise come back as formula text.
+      const range = (await get(`/open-apis/sheets/v2/spreadsheets/${ref.token}/values/${encodeURIComponent(`${sheet.sheet_id}!A1:Z${MAX_ROWS}`)}`, { valueRenderOption: "UnformattedValue" })).valueRange as { values?: unknown[][] } | undefined;
       if (chosen.length > 1) lines.push(`## ${sheet.title}`);
       for (const row of range?.values ?? []) {
         const cells = row.map((cell) => flatten(cell).replace(/\s+/g, " ").trim());

@@ -68,3 +68,16 @@ describe("reading Feishu documents", () => {
     expect(doc.text).toBe(`国家\t链接\nTR\t${video("7400000000000000005")}\nVN\t这条 ${video("7400000000000000006")}`);
   });
 });
+
+describe("sheet values", () => {
+  it("asks for computed values so formula cells come back as results, not formulas", async () => {
+    const params: Array<Record<string, string | number> | undefined> = [];
+    const get: FeishuGet = async (path, query) => {
+      params.push(query);
+      if (path.endsWith("/sheets/query")) return { sheets: [{ sheet_id: "s1", title: "T" }] };
+      return { valueRange: { values: [["Date"], [46300]] } };
+    };
+    await readFeishuDocument(get, "https://acme.feishu.cn/sheets/Sht0000000001");
+    expect(params.at(-1)).toMatchObject({ valueRenderOption: "UnformattedValue" });
+  });
+});

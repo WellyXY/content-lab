@@ -74,3 +74,17 @@ describe("choosing rows from a multi-tab sheet", () => {
     expect(() => selectDocLinks(doc, { tab: "2026", dateColumn: "Posted", days: 30, now })).toThrow(/Posted/);
   });
 });
+
+import { parseDate } from "../src/feishu/doc-links.js";
+
+describe("dates as people and sheets write them", () => {
+  const iso = (value: string) => { const time = parseDate(value); return time === null ? null : new Date(time).toISOString().slice(0, 10); };
+  it("reads spreadsheet numbers, compact dates and weekday-prefixed dates", () => {
+    expect(iso("46300")).toBe("2026-10-05");
+    expect(iso("20261005")).toBe("2026-10-05");
+    expect(iso("Thursday 20260917")).toBe("2026-09-17");
+    expect(iso("Friday, 2026-09-18")).toBe("2026-09-18");
+    expect(iso("2026 - 09 - 18")).toBe("2026-09-18");
+    expect(iso("DATE(2026,7,2)+INT((ROW()-ROW($I$4))/2)")).toBeNull();
+  });
+});
