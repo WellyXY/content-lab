@@ -43,10 +43,13 @@ export const answerCard = (markdown: string): Record<string, unknown> => ({
   elements: [{ tag: "markdown", content: markdown.length > MAX_ANSWER_CHARS ? `${markdown.slice(0, MAX_ANSWER_CHARS)}\n\n…（回复过长，已截断）` : markdown }],
 });
 
-/** One ongoing conversation per direct chat, one per thread in a group. */
+/**
+ * One ongoing conversation per direct chat and per topic thread. Elsewhere in a group each person has a rolling
+ * conversation, so a follow-up such as "綁定" after a plan still has the plan (the agent forgets it after an idle hour).
+ */
 export const feishuThreadKey = (message: ContentLabInboundMessage): string => message.chatType === "p2p"
   ? `feishu:p2p:${message.senderId}`
-  : `feishu:thread:${message.threadId ?? message.messageId}`;
+  : message.threadId ? `feishu:thread:${message.threadId}` : `feishu:group:${message.chatId ?? "unknown"}:${message.senderId}`;
 
 export interface ContentLabFeishuBot {
   connect: () => Promise<void>;

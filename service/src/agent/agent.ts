@@ -58,6 +58,17 @@ async function withSlot<T>(run: () => Promise<T>): Promise<T> {
   try { return await run(); } finally { active -= 1; waiting.shift()?.(); }
 }
 
+/** Group conversations outside topic threads end after this much silence. */
+export const GROUP_IDLE_MS = 60 * 60_000;
+
+/** The session to resume for a thread, or null to start a new one: rolling group conversations expire when idle. */
+export function resumableSession(db: ContentLabDatabase, threadKey: string, now = new Date()): string | null {
+  const row = db.prepare("SELECT session_id, updated_at FROM agent_sessions WHERE thread_key=?").get(threadKey) as { session_id: string; updated_at: string } | undefined;
+  if (!row) return null;
+  if (threadKey.startsWith("feishu:group:") && now.getTime() - Date.parse(row.updated_at) > GROUP_IDLE_MS) return null;
+  return row.session_id;
+}
+
 /** Forget a thread's conversation so its next message starts a new session. */
 export function resetAgentThread(db: ContentLabDatabase, threadKey: string): void {
   db.prepare("DELETE FROM agent_sessions WHERE thread_key=?").run(threadKey);
@@ -66,7 +77,8 @@ export function resetAgentThread(db: ContentLabDatabase, threadKey: string): voi
 export async function runAgentTurn(db: ContentLabDatabase, config: ServiceConfig, input: { threadKey: string; channel: string; author: string | null; role?: "owner" | "member"; text: string }): Promise<AgentTurn> {
   return withSlot(async () => {
     const started = Date.now();
-    const previous = db.prepare("SELECT session_id FROM agent_sessions WHERE thread_key=?").get(input.threadKey) as { session_id: string } | undefined;
+    const resume = resumableSession(db, input.threadKey);
+    const previous = resume ? { session_id: resume } : undefined;
     let toolCalls = 0;
     const tools = createAgentTools({ db, dbPath: config.dbPath, channel: input.channel, author: input.author, threadKey: input.threadKey, role: input.role ?? "owner", bindLimits: config, ...(feishuDocReader(config) ? { readFeishuDoc: feishuDocReader(config)! } : {}), onTool: () => { toolCalls += 1; } });
     // An empty working directory keeps any project CLAUDE.md or files out of reach.

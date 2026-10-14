@@ -46,6 +46,8 @@ describe("Feishu agent replies", () => {
     await handleContentLabFeishuMessage({ ...base, message: { ...message, messageId: "om_2", content: "/new" } });
     expect(resets).toEqual(["feishu:p2p:ou_owner"]);
     expect(feishuThreadKey({ ...message, chatType: "group", threadId: "omt_9" })).toBe("feishu:thread:omt_9");
+    // Outside a topic thread, a person's follow-ups in a group ("綁定") continue their own conversation.
+    expect(feishuThreadKey({ ...message, chatType: "group", chatId: "oc_team" })).toBe("feishu:group:oc_team:ou_owner");
     db.close();
   });
 
@@ -328,5 +330,20 @@ describe("PH market", () => {
     const bind = tools.tools.find((item) => item.name === "bind_posts")!;
     expect((bind.inputSchema as unknown as { market: { safeParse: (value: unknown) => { success: boolean } } }).market.safeParse("PH").success).toBe(true);
     tools.close(); db.close(); rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("conversation memory in groups", () => {
+  it("resumes a group conversation within an hour of the last message and starts fresh after that", async () => {
+    const { resumableSession } = await import("../src/agent/agent.js");
+    const db = openDatabase(":memory:");
+    const save = (key: string, at: string) => db.prepare("INSERT INTO agent_sessions(thread_key, channel, session_id, updated_at) VALUES (?, 'feishu', ?, ?)").run(key, `s-${key}`, at);
+    save("feishu:group:oc:ou_a", "2026-10-14T20:44:00.000Z");
+    save("feishu:p2p:ou_a", "2026-10-01T00:00:00.000Z");
+    expect(resumableSession(db, "feishu:group:oc:ou_a", new Date("2026-10-14T20:48:00.000Z"))).toBe("s-feishu:group:oc:ou_a");
+    expect(resumableSession(db, "feishu:group:oc:ou_a", new Date("2026-10-14T21:45:00.000Z"))).toBeNull();
+    expect(resumableSession(db, "feishu:p2p:ou_a", new Date("2026-10-14T21:45:00.000Z"))).toBe("s-feishu:p2p:ou_a");
+    expect(resumableSession(db, "feishu:group:oc:ou_b", new Date())).toBeNull();
+    db.close();
   });
 });
