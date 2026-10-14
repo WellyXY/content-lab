@@ -135,21 +135,27 @@ export default function OverviewPage() {
             <CardDescription>{t("里程碑、加速与运维事件", "Milestones, acceleration and operations")}</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            {data.recentAlerts.length ? data.recentAlerts.slice(0, 5).map((alert) => {
+            {data.recentAlerts.length ? groupAlerts(data.recentAlerts).slice(0, 5).map((group) => {
+              const alert = group[0]!;
               const payload = alert.payload;
-              return (
-                <div className="flex flex-col gap-4 border-b border-white/8 px-6 py-5 last:border-0 sm:flex-row sm:items-center" key={alert.id}>
+              const surge = group.find((item) => item.rule === "surge");
+              const row = (
+                <>
                   <div className="grid size-10 shrink-0 place-items-center rounded-[10px] bg-[#ff715b]/12 text-[#ff8a76]"><Flame className="size-5" /></div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-medium">{String(payload.creatorHandle ?? t("内容信号", "Content signal"))}</p>
-                      <Badge className="border-[#ff715b]/20 bg-[#ff715b]/10 text-[#ff9c8d]" variant="outline">{t(...(ALERT_RULES[alert.rule] ?? [alert.rule.replaceAll("_", " "), alert.rule.replaceAll("_", " ")]))}</Badge>
+                      {group.map((item) => <Badge className="border-[#ff715b]/20 bg-[#ff715b]/10 text-[#ff9c8d]" key={item.id} variant="outline">{t(...(ALERT_RULES[item.rule] ?? [item.rule.replaceAll("_", " "), item.rule.replaceAll("_", " ")]))}</Badge>)}
                     </div>
-                    <p className="mt-1 text-sm text-muted-foreground">{t("目前", "Now")} {compactNumber(Number(payload.currentViews ?? 0))} · {alert.rule === "surge" ? t("一天增加", "gained in a day") : t("最新增量", "latest delta")} +{compactNumber(Number((alert.rule === "surge" ? payload.dayDelta : payload.delta) ?? 0))}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{t("目前", "Now")} {compactNumber(Number(payload.currentViews ?? 0))} · {surge ? t("一天增加", "gained in a day") : t("最新增量", "latest delta")} +{compactNumber(Number((surge ? surge.payload.dayDelta : payload.delta) ?? 0))}</p>
                   </div>
                   <div className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground"><Clock3 className="size-3.5" /><RelativeTime value={alert.firedAt} /></div>
-                </div>
+                </>
               );
+              const className = "flex flex-col gap-4 border-b border-white/8 px-6 py-5 last:border-0 sm:flex-row sm:items-center";
+              return alert.postId
+                ? <Link className={`${className} transition-colors hover:bg-white/[0.03]`} href={`/posts/${alert.postId}`} key={alert.id}>{row}</Link>
+                : <div className={className} key={alert.id}>{row}</div>;
             }) : <div className="px-6 py-12 text-center text-sm text-muted-foreground">{t("目前没有新报警。", "No new alerts.")}</div>}
           </CardContent>
         </Card>
@@ -193,6 +199,17 @@ export default function OverviewPage() {
       ) : null}
     </>
   );
+}
+
+/** Signals from the same capture of a post (surge, acceleration, milestone) show as one row. */
+function groupAlerts(alerts: DashboardData["recentAlerts"]): Array<DashboardData["recentAlerts"]> {
+  const groups = new Map<string, DashboardData["recentAlerts"]>();
+  for (const alert of alerts) {
+    const key = `${alert.postId ?? alert.id}|${alert.firedAt.slice(0, 16)}`;
+    groups.set(key, [...(groups.get(key) ?? []), alert]);
+  }
+  const order = ["surge", "acceleration", "milestone"];
+  return [...groups.values()].map((group) => group.sort((a, b) => order.indexOf(a.rule) - order.indexOf(b.rule)));
 }
 
 const ALERT_RULES: Record<string, [string, string]> = {

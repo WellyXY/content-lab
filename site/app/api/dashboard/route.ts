@@ -21,7 +21,7 @@ export async function GET() {
         FROM metric_snapshots WHERE captured_at >= datetime('now', '-7 days') AND ok = 1
         GROUP BY substr(captured_at, 1, 13) ORDER BY at ASC`),
       db.prepare("SELECT * FROM posts ORDER BY delta_24h DESC, views DESC LIMIT 5"),
-      db.prepare("SELECT * FROM alerts ORDER BY fired_at DESC LIMIT 5"),
+      db.prepare("SELECT * FROM alerts ORDER BY fired_at DESC LIMIT 20"),
       db.prepare("SELECT market, COALESCE(SUM(delta_24h), 0) AS views, COUNT(*) AS posts FROM posts WHERE tracking_state != 'stopped' GROUP BY market ORDER BY views DESC"),
       db.prepare(marketAdsSql),
       db.prepare("SELECT * FROM posts WHERE json_extract(ads_json, '$.last7d.registrations') > 0 ORDER BY json_extract(ads_json, '$.last7d.registrations') DESC LIMIT 5"),

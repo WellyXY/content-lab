@@ -7,6 +7,7 @@ import { LayoutDashboard, Link2, ListVideo, Plus, Radio, BookOpenText } from "lu
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
+import { NotificationBell } from "@/components/content-lab/notification-bell";
 import { LanguageSwitch, LocaleProvider, useLocale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +44,7 @@ function Shell({ children }: { children: React.ReactNode }) {
               <span className="size-1.5 rounded-full bg-cyan-300" />
               {t("本机 worker 同步", "Local worker sync")}
             </Badge>
+            <NotificationBell />
             <LanguageSwitch />
             <Button asChild className="rounded-[9px] font-semibold" size="sm">
               <Link href="/bind"><Plus />{t("绑定帖子", "Bind posts")}</Link>
