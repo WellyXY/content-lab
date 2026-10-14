@@ -16,6 +16,11 @@ export interface FeishuDocument {
 
 const DOC_HOSTS = /(^|\.)(feishu\.cn|feishu\.net|larksuite\.com|larkoffice\.com)$/i;
 const MAX_TEXT = 40_000;
+const SHEET_CHUNK_ROWS = 2_000;
+const MAX_SHEET_ROWS = 50_000;
+const MAX_SHEET_COLUMNS = 200;
+/** 1 → A, 27 → AA. */
+const columnLetter = (index: number): string => { let name = ""; for (let n = index; n > 0; n = Math.floor((n - 1) / 26)) name = String.fromCharCode(65 + ((n - 1) % 26)) + name; return name; };
 const MAX_ROWS = 2_000;
 export const TIKTOK_URL = /https:\/\/(?:[a-z0-9-]+\.)*tiktok\.com\/[^\s"'<>，。、；）)\]]+/gi;
 
@@ -98,15 +103,21 @@ export async function readFeishuDocument(get: FeishuGet, input: string, options:
       if (line) lines.push(line);
     }
   } else if (ref.kind === "sheet") {
-    const sheets = ((await get(`/open-apis/sheets/v3/spreadsheets/${ref.token}/sheets/query`)).sheets as Array<{ sheet_id: string; title: string }> | undefined) ?? [];
+    const sheets = ((await get(`/open-apis/sheets/v3/spreadsheets/${ref.token}/sheets/query`)).sheets as Array<{ sheet_id: string; title: string; grid_properties?: { row_count?: number; column_count?: number } }> | undefined) ?? [];
     const chosen = ref.sub ? sheets.filter((sheet) => sheet.sheet_id === ref.sub) : sheets;
     for (const sheet of chosen.slice(0, 20)) {
-      // Computed values: formula cells (dates built with DATE(), IMPORTRANGE) would otherwise come back as formula text.
-      const range = (await get(`/open-apis/sheets/v2/spreadsheets/${ref.token}/values/${encodeURIComponent(`${sheet.sheet_id}!A1:Z${MAX_ROWS}`)}`, { valueRenderOption: "UnformattedValue" })).valueRange as { values?: unknown[][] } | undefined;
       if (chosen.length > 1) lines.push(`## ${sheet.title}`);
-      for (const row of range?.values ?? []) {
-        const cells = row.map((cell) => flatten(cell).replace(/\s+/g, " ").trim());
-        if (cells.some(Boolean)) lines.push(cells.join("\t").replace(/\t+$/, ""));
+      // The whole grid, in batches: new rows usually go at the bottom, past any fixed range.
+      const rowCount = Math.min(sheet.grid_properties?.row_count ?? SHEET_CHUNK_ROWS, MAX_SHEET_ROWS);
+      const lastColumn = columnLetter(Math.min(Math.max(sheet.grid_properties?.column_count ?? 26, 1), MAX_SHEET_COLUMNS));
+      for (let start = 1; start <= rowCount; start += SHEET_CHUNK_ROWS) {
+        const end = Math.min(start + SHEET_CHUNK_ROWS - 1, rowCount);
+        // Computed values: formula cells (dates built with DATE(), IMPORTRANGE) would otherwise come back as formula text.
+        const range = (await get(`/open-apis/sheets/v2/spreadsheets/${ref.token}/values/${encodeURIComponent(`${sheet.sheet_id}!A${start}:${lastColumn}${end}`)}`, { valueRenderOption: "UnformattedValue" })).valueRange as { values?: unknown[][] } | undefined;
+        for (const row of range?.values ?? []) {
+          const cells = row.map((cell) => flatten(cell).replace(/\s+/g, " ").trim());
+          if (cells.some(Boolean)) lines.push(cells.join("\t").replace(/\t+$/, ""));
+        }
       }
     }
   } else {

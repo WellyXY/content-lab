@@ -81,3 +81,22 @@ describe("sheet values", () => {
     expect(params.at(-1)).toMatchObject({ valueRenderOption: "UnformattedValue" });
   });
 });
+
+describe("long sheets", () => {
+  it("reads every row and column of a tab in batches, not just the first 2,000 rows to column Z", async () => {
+    const ranges: string[] = [];
+    const get: FeishuGet = async (path) => {
+      if (path.endsWith("/sheets/query")) return { sheets: [{ sheet_id: "s1", title: "ID-TT", grid_properties: { row_count: 4_500, column_count: 30 } }] };
+      const range = decodeURIComponent(path.split("/values/")[1]!);
+      ranges.push(range);
+      const [, start] = range.match(/!A(\d+):/)!;
+      const first = Number(start);
+      const values = first === 1 ? [["Area", "Video Post Date", "Link"], ...Array.from({ length: 1_999 }, () => ["ID", 46000, "x"])] : Array.from({ length: first > 4_000 ? 500 : 2_000 }, (_, index) => ["ID", 46300, index === 0 ? `https://www.tiktok.com/@k/video/74500000000000${first}` : "x"]);
+      return { valueRange: { values } };
+    };
+    const doc = await readFeishuDocument(get, "https://acme.feishu.cn/sheets/Sht0000000001");
+    expect(ranges).toEqual(["s1!A1:AD2000", "s1!A2001:AD4000", "s1!A4001:AD4500"]);
+    expect(doc.lines).toHaveLength(4_500);
+    expect(doc.lines.at(-1)).toContain("46300");
+  });
+});
