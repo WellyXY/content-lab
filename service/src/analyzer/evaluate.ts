@@ -99,7 +99,8 @@ export function referenceCases(db: ContentLabDatabase, market: string, excludePo
 
 /** The post's own outcomes must never reach the scoring prompt (blind pass, calibration protocol point 2). */
 export function assertBlind(postBlock: string, db: ContentLabDatabase, postId: string): void {
-  if (/\b(views?|likes?|registrations?|spend|cpr|cpi|cpm|installs?|impressions?)\b\s*["':=]/i.test(postBlock)) throw new Error("Evaluation input is not blind: it names a performance field");
+  // Field names only: creator text such as `be like:` or "like" is content, not a metric.
+  if (/"(?:views?|likes?|comments?_count|shares?_count|play_count|digg_count|registrations?|spend|cpr|cpi|cpm|installs?|impressions?|ads?)"\s*:/i.test(postBlock)) throw new Error("Evaluation input is not blind: it names a performance field");
   const snapshot = db.prepare("SELECT views, likes, comments, shares, saves FROM metric_snapshots WHERE post_id=? AND ok=1 ORDER BY captured_at DESC LIMIT 1").get(postId) as Record<string, number | null> | undefined;
   const ads = db.prepare("SELECT ads_json FROM posts WHERE id=?").get(postId) as { ads_json: string | null } | undefined;
   const lifetime = (ads?.ads_json ? (JSON.parse(ads.ads_json) as { lifetime?: Record<string, number | null> } | null)?.lifetime : null) ?? {};
