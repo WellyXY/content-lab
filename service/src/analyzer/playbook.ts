@@ -450,7 +450,7 @@ export function renderPlaybookMarkdown(playbook: StoredPlaybook, lang: Lang = "z
 /** Build this week's evidence, let the model write the playbook, and store it as a new version. */
 export async function generatePlaybook(db: ContentLabDatabase, config: ServiceConfig, market: string, now = new Date().toISOString(), options: { excludePostIds?: string[]; outcome?: PlaybookOutcome } = {}): Promise<StoredPlaybook> {
   const taxonomy = loadTaxonomy(config.taxonomyPath);
-  const outcome = options.outcome ?? playbookOutcome(db, market);
+  const outcome = options.outcome ?? (config.siteKbV2 ? playbookOutcome(db, market) : "views");
   const registrations = outcome === "registrations";
   // Excluding posts lets a backtest assess them against a playbook that never saw them.
   const evidence = buildEvidence(db, taxonomy, market, now, options.excludePostIds, config.taxonomyPath, outcome);
@@ -505,16 +505,16 @@ export function postsAwaitingAssessment(db: ContentLabDatabase, market: string):
 }
 
 /** The weekly playbook job; a market that gains enough ads evidence mid-week gets its registration playbook right away. */
-export function playbookJobKey(db: ContentLabDatabase, market: string, now: string): string {
-  return `playbook:${market}:${marketWeekStart(market, now)}${playbookOutcome(db, market) === "registrations" ? ":registrations" : ""}`;
+export function playbookJobKey(db: ContentLabDatabase, market: string, now: string, registrations = true): string {
+  return `playbook:${market}:${marketWeekStart(market, now)}${registrations && playbookOutcome(db, market) === "registrations" ? ":registrations" : ""}`;
 }
 
 /** Markets whose playbook is missing, from an earlier week, or still views-based although registration evidence is ready, and that have enough posts. */
-export function marketsDueForPlaybook(db: ContentLabDatabase, now: string): string[] {
+export function marketsDueForPlaybook(db: ContentLabDatabase, now: string, registrations = true): string[] {
   const markets = (db.prepare("SELECT DISTINCT market FROM posts WHERE market IS NOT NULL").all() as Array<{ market: string }>).map((row) => row.market);
   return markets.filter((market) => {
     const latest = db.prepare("SELECT week_start, json_extract(evidence_json, '$.outcome') AS outcome FROM playbooks WHERE market=? ORDER BY version DESC LIMIT 1").get(market) as { week_start: string; outcome: string | null } | undefined;
-    if (latest && latest.week_start >= marketWeekStart(market, now) && (latest.outcome ?? "views") === playbookOutcome(db, market)) return false;
+    if (latest && latest.week_start >= marketWeekStart(market, now) && (latest.outcome ?? "views") === (registrations ? playbookOutcome(db, market) : "views")) return false;
     // Wait for queued re-analyses so the playbook is built from the current pipeline's output.
     const pending = db.prepare(`SELECT 1 FROM jobs j JOIN posts p ON p.id=json_extract(j.payload_json, '$.postId')
       WHERE j.kind='analyze' AND j.status IN ('queued','running','failed') AND j.attempts < j.max_attempts AND p.market=? LIMIT 1`).get(market);

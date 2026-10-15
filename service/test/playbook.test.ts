@@ -174,6 +174,8 @@ describe("registration playbook", () => {
     expect(marketsDueForPlaybook(db, now)).toEqual([]);
     for (let index = 0; index < 12; index += 1) db.prepare("UPDATE posts SET ads_json=? WHERE id=?").run(JSON.stringify({ lifetime: { spend: 100, registrations: 50 } }), `p${index}`);
     expect(marketsDueForPlaybook(db, now)).toEqual(["TR"]);
+    // Until the Site release that labels registration statistics, the market stays on views.
+    expect(marketsDueForPlaybook(db, now, false)).toEqual([]);
     expect(playbookJobKey(db, "TR", now)).toMatch(/:registrations$/);
     db.close();
   });

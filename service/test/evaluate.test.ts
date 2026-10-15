@@ -81,6 +81,7 @@ describe("evaluation validation", () => {
     const rec = sampleEvaluation().recommendations[0]!;
     expect(() => validateEvaluation(sampleEvaluation({ recommendations: [rec, rec, rec, rec] }), ids)).toThrow(/at most 3/);
     expect(() => validateEvaluation(sampleEvaluation({ recommendations: [{ ...rec, reference_case_ids: ["VN-999"] }] }), ids)).toThrow(/unknown reference/);
+    expect(() => validateEvaluation(sampleEvaluation({ recommendations: [{ ...rec, reference_case_ids: ["VN-003", "post:abc", "VN-003"] }] }), ids)).toThrow(/at most 2/);
   });
 });
 
@@ -89,7 +90,7 @@ describe("evaluatePost", () => {
     const { db, target } = setup();
     let runs = 0;
     const run = async () => { runs += 1; return sampleEvaluation({ recommendations: [] }); };
-    const config = { mediaDir: "/tmp/none", claudeModel: "m", analyzerProvider: "claude", siteEvalSync: true } as never;
+    const config = { mediaDir: "/tmp/none", claudeModel: "m", analyzerProvider: "claude", siteKbV2: true } as never;
     const first = await evaluatePost(db, config, target.id, 1, { run });
     expect(first?.registration_potential.score).toBe(4);
     await evaluatePost(db, config, target.id, 1, { run });
@@ -119,7 +120,7 @@ describe("evaluation scheduling", () => {
   });
   it("leaves evaluations off the Site until the Site release that shows them", async () => {
     const { db, target } = setup();
-    const config = { mediaDir: "/tmp/none", claudeModel: "m", analyzerProvider: "claude", siteEvalSync: false } as never;
+    const config = { mediaDir: "/tmp/none", claudeModel: "m", analyzerProvider: "claude", siteKbV2: false } as never;
     await evaluatePost(db, config, target.id, 1, { run: async () => sampleEvaluation({ recommendations: [] }) });
     expect((db.prepare("SELECT COUNT(*) AS n FROM sync_outbox WHERE type='prediction'").get() as { n: number }).n).toBe(0);
     db.close();

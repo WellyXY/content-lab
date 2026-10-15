@@ -46,7 +46,7 @@ try {
       });
       predictions += 1;
     }
-    const evaluation = config.siteEvalSync ? db.prepare("SELECT id FROM predictions WHERE post_id=? AND id LIKE 'eval-%' ORDER BY made_at DESC LIMIT 1").get(post.id) as { id: string } | undefined : undefined;
+    const evaluation = config.siteKbV2 ? db.prepare("SELECT id FROM predictions WHERE post_id=? AND id LIKE 'eval-%' ORDER BY made_at DESC LIMIT 1").get(post.id) as { id: string } | undefined : undefined;
     if (evaluation) { syncEvaluation(db, evaluation.id); predictions += 1; }
   }
   let playbooks = 0;

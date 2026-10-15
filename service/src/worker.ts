@@ -267,8 +267,8 @@ export async function runWorkerCycle(): Promise<void> {
   const staleRecreations = failStaleRecreations(db);
   if (staleRecreations) log("recreations_failed_stale", { count: staleRecreations });
   const now = new Date().toISOString();
-  for (const market of marketsDueForPlaybook(db, now)) {
-    enqueueJob(db, { kind: "playbook", payload: { market }, idempotencyKey: playbookJobKey(db, market, now) });
+  for (const market of marketsDueForPlaybook(db, now, config.siteKbV2)) {
+    enqueueJob(db, { kind: "playbook", payload: { market }, idempotencyKey: playbookJobKey(db, market, now, config.siteKbV2) });
   }
   await pushPendingEvents();
   startAnalyses();
