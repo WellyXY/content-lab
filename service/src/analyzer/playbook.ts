@@ -11,10 +11,10 @@ import { analyzerModelLabel, runModel } from "./model.js";
 import { loadTaxonomy, type Taxonomy } from "./schema.js";
 
 /** Ask the model again with the validation error when its output breaks a rule, up to two retries. */
-export async function runValidated<T>(config: ServiceConfig, prompt: string, schema: Record<string, unknown>, validate: (raw: unknown) => T, images: string[] = []): Promise<T> {
+export async function runValidated<T>(config: ServiceConfig, prompt: string, schema: Record<string, unknown>, validate: (raw: unknown) => T, images: string[] = [], options: { timeoutMs?: number } = {}): Promise<T> {
   let feedback = "";
   for (let attempt = 0; ; attempt += 1) {
-    const raw = await runModel(config, config.mediaDir, feedback ? `${prompt}\n\nYour previous answer was rejected: ${feedback}\nFix exactly this problem and answer again.` : prompt, schema, images);
+    const raw = await runModel(config, config.mediaDir, feedback ? `${prompt}\n\nYour previous answer was rejected: ${feedback}\nFix exactly this problem and answer again.` : prompt, schema, images, options);
     try {
       return validate(raw);
     } catch (error) {

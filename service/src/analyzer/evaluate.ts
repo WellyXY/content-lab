@@ -103,10 +103,11 @@ export function assertBlind(postBlock: string, db: ContentLabDatabase, postId: s
   const snapshot = db.prepare("SELECT views, likes, comments, shares, saves FROM metric_snapshots WHERE post_id=? AND ok=1 ORDER BY captured_at DESC LIMIT 1").get(postId) as Record<string, number | null> | undefined;
   const ads = db.prepare("SELECT ads_json FROM posts WHERE id=?").get(postId) as { ads_json: string | null } | undefined;
   const lifetime = (ads?.ads_json ? (JSON.parse(ads.ads_json) as { lifetime?: Record<string, number | null> } | null)?.lifetime : null) ?? {};
-  const values = [...Object.values(snapshot ?? {}), ...Object.values(lifetime)].filter((value): value is number => typeof value === "number" && value >= 100);
+  // Small counts collide with ordinary numbers in the analysis (e.g. 118 spoken words and 118 likes), so only distinctive values are checked, as whole numbers.
+  const values = [...Object.values(snapshot ?? {}), ...Object.values(lifetime)].filter((value): value is number => typeof value === "number" && value >= 1_000);
   for (const value of values) {
     const forms = [String(value), value.toLocaleString("en-US"), value.toFixed(2)];
-    if (forms.some((form) => postBlock.includes(form))) throw new Error("Evaluation input is not blind: it contains the post's own metrics");
+    if (forms.some((form) => new RegExp(`(?<![\\d.,])${form.replace(/[.,]/g, "\\$&")}(?![\\d])`).test(postBlock))) throw new Error("Evaluation input is not blind: it contains the post's own metrics");
   }
 }
 
@@ -175,7 +176,7 @@ export async function evaluatePost(
   const images = keyframePaths(config.mediaDir, postId);
   const evaluation = deps.run
     ? validateEvaluation(await deps.run(prompt, evaluationSchema, images), referenceIds)
-    : await runValidated(config, prompt, evaluationSchema, (raw) => validateEvaluation(raw, referenceIds), images);
+    : await runValidated(config, prompt, evaluationSchema, (raw) => validateEvaluation(raw, referenceIds), images, { timeoutMs: EVAL_TIMEOUT_MS });
   const model = analyzerModelLabel(config);
   const site = db.prepare("SELECT site_post_id FROM posts WHERE id=?").get(postId) as { site_post_id: string | null };
   const inputs = {
@@ -195,6 +196,9 @@ export function syncEvaluation(db: ContentLabDatabase, id: string, now = new Dat
   if (!row) return;
   putSyncEvent(db, "prediction", id, { id, postId: row.site_post_id ?? row.post_id, sitePostId: row.site_post_id, localPostId: row.post_id, stage: "bind", madeAt: row.made_at, band: "evaluation", modelVersion: row.model_version, rationale: row.rationale, inputs: JSON.parse(row.inputs_json) }, now);
 }
+
+/** A full evaluation with keyframes usually takes one to three minutes; some take longer than the default five. */
+const EVAL_TIMEOUT_MS = 12 * 60_000;
 
 /** Existing posts re-run through the v2 evaluation per day; new posts are not counted. */
 export const EVAL_BACKFILL_PER_DAY = 30;

@@ -68,9 +68,10 @@ export async function runModel(
   prompt: string,
   schema: Record<string, unknown>,
   images: string[] = [],
+  options: { timeoutMs?: number } = {},
 ): Promise<unknown> {
   if (config.analyzerProvider === "claude") {
-    return semaphore(config.analyzerConcurrency).use(() => runClaude({ model: config.claudeModel }, prompt, schema, images));
+    return semaphore(config.analyzerConcurrency).use(() => runClaude({ model: config.claudeModel, ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}) }, prompt, schema, images));
   }
   return runCodex(config, workDir, prompt, schema, images);
 }

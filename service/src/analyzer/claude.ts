@@ -99,13 +99,16 @@ export async function runClaude(
       const child = spawn(options.binary ?? "claude", claudeArguments(options.model, schema), { cwd, env: childEnvironment(), stdio: ["pipe", "pipe", "pipe"] });
       let out = "";
       let err = "";
-      const timer = setTimeout(() => child.kill("SIGTERM"), options.timeoutMs ?? 5 * 60_000);
+      let timedOut = false;
+      const timeoutMs = options.timeoutMs ?? 5 * 60_000;
+      // The CLI exits cleanly on SIGTERM, so the close event alone cannot tell a timeout from an empty answer.
+      const timer = setTimeout(() => { timedOut = true; child.kill("SIGTERM"); }, timeoutMs);
       child.stdout.setEncoding("utf8").on("data", (chunk: string) => { out += chunk; });
       child.stderr.setEncoding("utf8").on("data", (chunk: string) => { err = (err + chunk).slice(-16_000); });
       child.on("error", (error) => { clearTimeout(timer); reject(error); });
       child.on("close", (exitCode, signal) => {
         clearTimeout(timer);
-        resolve({ code: exitCode, stdout: out, stderr: signal ? `${err}\nterminated by ${signal} (timeout)` : err });
+        resolve({ code: exitCode, stdout: out, stderr: signal || timedOut ? `${err}\nterminated after ${Math.round(timeoutMs / 1000)}s (timeout)` : err });
       });
       child.stdin.end(input);
     });

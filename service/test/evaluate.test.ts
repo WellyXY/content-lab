@@ -65,6 +65,10 @@ describe("blind evaluation prompt", () => {
     for (const leak of ["987654", "987,654", "43210", "1234.56", "7777", "0.158"]) expect(prompt).not.toContain(leak);
     expect(() => assertBlind(postBlock, db, target.id)).not.toThrow();
     expect(() => assertBlind(`${postBlock}\nviews: 987654`, db, target.id)).toThrow(/blind/);
+    expect(() => assertBlind(`${postBlock} "watched":987654`, db, target.id)).toThrow(/own metrics/);
+    // Ordinary numbers that merely contain or equal a small count are not leaks.
+    db.prepare("UPDATE metric_snapshots SET likes=118 WHERE post_id=?").run(target.id);
+    expect(() => assertBlind(`${postBlock} "speech_words":118 "id":19876543`, db, target.id)).not.toThrow();
     db.close();
   });
 });
