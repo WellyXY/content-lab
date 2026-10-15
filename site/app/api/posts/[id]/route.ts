@@ -22,8 +22,8 @@ export async function GET(_request: Request, context: Context) {
         json_extract(f.tags_json, '$.topic.value') AS topic
         FROM posts p
         LEFT JOIN post_features f ON f.post_id = p.id
-        LEFT JOIN predictions pred ON pred.id = (SELECT id FROM predictions WHERE post_id = p.id AND id NOT LIKE 'eval-%' ORDER BY made_at DESC LIMIT 1)
-      LEFT JOIN predictions ev ON ev.id = (SELECT id FROM predictions WHERE post_id = p.id AND id LIKE 'eval-%' ORDER BY made_at DESC LIMIT 1)
+        LEFT JOIN predictions pred ON pred.id = (SELECT id FROM predictions WHERE post_id = p.id AND COALESCE(band, '') != 'evaluation' ORDER BY made_at DESC LIMIT 1)
+      LEFT JOIN predictions ev ON ev.id = (SELECT id FROM predictions WHERE post_id = p.id AND band = 'evaluation' ORDER BY made_at DESC LIMIT 1)
         WHERE p.id = ? LIMIT 1`).bind(id),
       db.prepare("SELECT * FROM metric_snapshots WHERE post_id = ? ORDER BY captured_at ASC LIMIT 1500").bind(id),
       db.prepare("SELECT * FROM post_features WHERE post_id = ? LIMIT 1").bind(id),
