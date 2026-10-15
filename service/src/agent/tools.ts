@@ -59,6 +59,8 @@ export function postDetail(db: ContentLabDatabase, id: string): Record<string, u
   const analysis = features ? JSON.parse(features.analysis_json) as Record<string, unknown> : {};
   const prediction = db.prepare("SELECT band, rationale, inputs_json, made_at FROM predictions WHERE post_id=? AND id LIKE 'assess-%' ORDER BY made_at DESC LIMIT 1").get(id) as { band: string; rationale: string; inputs_json: string; made_at: string } | undefined;
   const assessment = prediction ? JSON.parse(prediction.inputs_json) as Record<string, unknown> : null;
+  const evaluationRow = db.prepare("SELECT inputs_json, made_at FROM predictions WHERE post_id=? AND id LIKE 'eval-%' ORDER BY made_at DESC LIMIT 1").get(id) as { inputs_json: string; made_at: string } | undefined;
+  const evaluation = evaluationRow ? JSON.parse(evaluationRow.inputs_json) as Record<string, any> : null;
   const tags = features ? Object.fromEntries(Object.entries(JSON.parse(features.tags_json) as Record<string, { value: unknown }>).map(([key, decision]) => [key, decision.value])) : {};
   return {
     id, siteId: post.site_post_id, url: post.url, market: post.market, creator: post.creator, type: post.type,
@@ -73,6 +75,14 @@ export function postDetail(db: ContentLabDatabase, id: string): Record<string, u
     assessment: assessment ? {
       potential: prediction?.band, reason: prediction?.rationale, playbookVersion: (assessment.playbook as { version?: number } | null)?.version ?? null,
       matched: assessment.matched_patterns, missing: assessment.missing_patterns, antiPatterns: assessment.anti_patterns_hit, suggestions: assessment.suggestions,
+      note: "v1 (legacy): predicts views only. Prefer `evaluation` when present.",
+    } : null,
+    // KB v2: scored blind to this post's own performance; compare with `ads` only to explain a surprise, never to change the scores.
+    evaluation: evaluation ? {
+      madeAt: evaluationRow!.made_at, creativeScore: evaluation.creative_score, registrationPotential: evaluation.registration_potential,
+      summaryZh: evaluation.summary_zh, motivation: evaluation.motivation, hook: evaluation.hook, reverse: evaluation.reverse,
+      productIntegration: evaluation.product_integration, diagnosis: evaluation.diagnosis, recommendations: evaluation.recommendations,
+      sourceStatus: evaluation.source_status, kbVersion: evaluation.kbVersion,
     } : null,
   };
 }

@@ -2,7 +2,7 @@ import "server-only";
 
 import { env } from "cloudflare:workers";
 
-import type { AlertItem, PostFeature, PostSummary, Prediction, Snapshot } from "@/lib/content-lab";
+import type { AlertItem, KbEvaluation, PostFeature, PostSummary, Prediction, Snapshot } from "@/lib/content-lab";
 
 type RuntimeEnv = Cloudflare.Env & Record<string, unknown>;
 
@@ -72,6 +72,8 @@ export function rowToPost(row: Record<string, unknown>): PostSummary {
     checkpoints: safeJson<PostSummary["checkpoints"]>(row.checkpoints_json, []),
     ads: safeJson<PostSummary["ads"]>(row.ads_json, null),
     potential: ["high", "medium", "low"].includes(String(row.potential_band)) ? row.potential_band as PostSummary["potential"] : null,
+    creativeScore: typeof row.creative_score === "number" ? row.creative_score : null,
+    registrationPotential: typeof row.registration_potential === "number" ? row.registration_potential : null,
     hookType: nullableString(row.hook_type),
     topic: nullableString(row.topic),
   };
@@ -122,6 +124,10 @@ export function rowToPrediction(row: Record<string, unknown>): Prediction {
     assessment: (() => {
       const inputs = safeJson<Record<string, unknown>>(row.inputs_json, {});
       return inputs.kind === "playbook_assessment" ? inputs as unknown as Prediction["assessment"] : null;
+    })(),
+    evaluation: (() => {
+      const inputs = safeJson<Record<string, unknown>>(row.inputs_json, {});
+      return inputs.kind === "kb_evaluation" ? inputs as unknown as KbEvaluation : null;
     })(),
   };
 }

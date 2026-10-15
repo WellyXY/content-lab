@@ -57,8 +57,11 @@ export type PostSummary = {
   rankTotal?: number | null;
   /** Early performance at 1/3/6/24/72 hours after publishing, computed by the worker. */
   checkpoints?: Checkpoint[];
-  /** Viral potential from the latest playbook assessment. */
+  /** Viral potential from the latest playbook assessment (v1, views only). */
   potential?: "high" | "medium" | "low" | null;
+  /** Knowledge base v2 scores, 0–10, made blind to the post's own performance; null when evidence was missing. */
+  creativeScore?: number | null;
+  registrationPotential?: number | null;
   hookType?: string | null;
   topic?: string | null;
   ads?: PostAds | null;
@@ -161,15 +164,36 @@ export type PlaybookData = PlaybookSummary & {
     weekly_changes: Array<{ type: string; pattern_id: string; change_zh: string; change_en?: string }>;
     open_questions?: Array<{ zh: string; en: string }>;
     open_questions_zh?: string[];
+    exceptions?: Array<{ kind: "high_views_low_registrations" | "low_views_good_registrations" | "copy_failed" | "other"; zh: string; en: string; post_ids: string[] }>;
     sample_caveat_zh: string; sample_caveat_en?: string;
   };
   evidence: {
+    /** "registrations" ranks promoted posts by cost per registration within format; missing means views. */
+    outcome?: "views" | "registrations";
     eligiblePosts: number; topSize: number; bottomSize: number; topMinViews: number; medianViews: number;
-    stats: Array<{ key: string; label: string; labelEn?: string; posts: number; topPosts: number; bottomPosts: number; topShare: number; bottomShare: number; lift: number; medianViews: number }>;
+    topMaxCpr?: number; medianCpr?: number; insufficientPosts?: number;
+    stats: Array<{ key: string; label: string; labelEn?: string; posts: number; topPosts: number; bottomPosts: number; topShare: number; bottomShare: number; lift: number; medianViews: number; medianCpr?: number | null }>;
     numeric: Array<{ key: string; label: string; labelEn?: string; topMedian: number | null; bottomMedian: number | null }>;
-    posts: Array<{ id: string; views: number; tier: string; summaryZh: string; summaryEn?: string; formulaZh: string; formulaEn?: string }>;
+    posts: Array<{ id: string; views: number; tier: string; summaryZh: string; summaryEn?: string; formulaZh: string; formulaEn?: string; cpr?: number; registrations?: number }>;
   };
 };
+
+type Bi<K extends string> = { [P in `${K}_zh` | `${K}_en`]: string };
+export type EvaluationScore = { score: number | null; confidence: "low" | "medium" | "high"; evidence: Array<{ label: string; zh: string; en: string }> } & Bi<"caveat">;
+/** Knowledge base v2 evaluation (docs/kb): two independent blind scores, motivation analysis and script changes. */
+export type KbEvaluation = {
+  kind: "kb_evaluation"; kbVersion: string; promptVersion: string;
+  creativeScore: number | null; registrationPotential: number | null;
+  source_status: "complete" | "partial" | "unavailable";
+  creative_score: EvaluationScore; registration_potential: EvaluationScore;
+  hook: { triggers: string[]; forms: string[]; zh: string; en: string };
+  reverse: { present: boolean; position: string; links_to_motivation: boolean } & Bi<"setup" | "reveal">;
+  product_integration: { visibility: "none" | "brief" | "central" } & Bi<"narrative_function" | "motivation_connection">;
+  motivation: Bi<"desire" | "why_popup" | "first_person_thought" | "plausibility" | "timing" | "entertainment_gap">;
+  diagnosis: { strengths: Array<{ zh: string; en: string }>; barriers: Array<{ zh: string; en: string }> } & Bi<"exceptions">;
+  recommendations: Array<Bi<"change" | "mechanism" | "hypothesis"> & { reference_case_ids: string[] }>;
+  references?: Array<{ id: string; postId: string }>;
+} & Bi<"summary" | "evidence_limitations" | "payoff" | "trend_localization">;
 
 export type Prediction = {
   id: string;
@@ -180,6 +204,7 @@ export type Prediction = {
   band: string | null;
   rationale: string | null;
   assessment: PlaybookAssessment | null;
+  evaluation?: KbEvaluation | null;
 };
 
 export type AlertItem = {

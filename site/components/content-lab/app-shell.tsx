@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Link2, ListVideo, Plus, Radio, BookOpenText } from "lucide-react";
+import { LayoutDashboard, Link2, ListVideo, Plus, Radio, BookOpenText, Gauge } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ const links: Array<{ href: string; label: [string, string]; icon: typeof LayoutD
   { href: "/", label: ["总览", "Overview"], icon: LayoutDashboard },
   { href: "/posts", label: ["帖子", "Posts"], icon: ListVideo },
   { href: "/playbook", label: ["爆款文档", "Playbook"], icon: BookOpenText },
+  { href: "/calibration", label: ["校准", "Calibration"], icon: Gauge },
   { href: "/bind", label: ["绑定", "Bind"], icon: Link2 },
 ];
 

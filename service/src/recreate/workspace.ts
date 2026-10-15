@@ -119,6 +119,10 @@ async function collectInputs(
     const record = item as Record<string, unknown>;
     return typeof record?.change_zh === "string" ? record.change_zh : zhText(item);
   }).filter(Boolean);
+  const evaluationRow = db.prepare("SELECT inputs_json FROM predictions WHERE post_id=? AND id LIKE 'eval-%' ORDER BY made_at DESC LIMIT 1").get(post.id) as { inputs_json: string } | undefined;
+  const evaluation = evaluationRow ? JSON.parse(evaluationRow.inputs_json) as {
+    motivation?: Record<string, string>; recommendations?: Array<{ change_zh: string; mechanism_zh: string }>; diagnosis?: { barriers?: Array<{ zh: string }> };
+  } : null;
   const playbook = post.market ? latestPlaybook(db, post.market) : null;
   let transcript: RecreateInputs["transcript"] = null;
   if (config.whisperModel) {
@@ -129,6 +133,12 @@ async function collectInputs(
     postId: post.id, market: post.market ?? "", durationS, caption: post.caption,
     transcript, script: analysis.script ?? [],
     assessment: assessmentRow ? { band: assessmentRow.band, suggestions: list(assessment?.suggestions), missing: list(assessment?.missing_patterns), antiPatterns: list(assessment?.anti_patterns_hit) } : null,
+    evaluation: evaluation ? {
+      desire: evaluation.motivation?.desire_zh ?? "", whyPopup: evaluation.motivation?.why_popup_zh ?? "",
+      firstPersonThought: evaluation.motivation?.first_person_thought_zh ?? "", gap: evaluation.motivation?.entertainment_gap_zh ?? "",
+      recommendations: (evaluation.recommendations ?? []).map((item) => `${item.change_zh}（机制：${item.mechanism_zh}）`),
+      barriers: (evaluation.diagnosis?.barriers ?? []).map((item) => item.zh),
+    } : null,
     playbookSummary: playbook ? renderPlaybookMarkdown(playbook, "zh").slice(0, 6_000) : null,
     memories: ownerMemoryBlock(memoriesFor(db, { market: post.market, postId: post.id })),
   };

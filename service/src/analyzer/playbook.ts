@@ -11,10 +11,10 @@ import { analyzerModelLabel, runModel } from "./model.js";
 import { loadTaxonomy, type Taxonomy } from "./schema.js";
 
 /** Ask the model again with the validation error when its output breaks a rule, up to two retries. */
-async function runValidated<T>(config: ServiceConfig, prompt: string, schema: Record<string, unknown>, validate: (raw: unknown) => T): Promise<T> {
+export async function runValidated<T>(config: ServiceConfig, prompt: string, schema: Record<string, unknown>, validate: (raw: unknown) => T, images: string[] = []): Promise<T> {
   let feedback = "";
   for (let attempt = 0; ; attempt += 1) {
-    const raw = await runModel(config, config.mediaDir, feedback ? `${prompt}\n\nYour previous answer was rejected: ${feedback}\nFix exactly this problem and answer again.` : prompt, schema);
+    const raw = await runModel(config, config.mediaDir, feedback ? `${prompt}\n\nYour previous answer was rejected: ${feedback}\nFix exactly this problem and answer again.` : prompt, schema, images);
     try {
       return validate(raw);
     } catch (error) {
@@ -31,9 +31,21 @@ export const MIN_AGE_DAYS = 2;
 
 const DAY = 86_400_000;
 
+/** What separates the top tier: views (v1) or registration cost on Spark Ads (knowledge base v2, GP primary KPI). */
+export type PlaybookOutcome = "views" | "registrations";
+/** A promoted post counts as registration evidence only above both thresholds (knowledge base calibration protocol, point 3). */
+export const EVIDENCE_MIN_SPEND = 50;
+export const EVIDENCE_MIN_REGISTRATIONS = 30;
+/** A format needs this many evidence posts in a market before its posts are ranked against each other. */
+export const MIN_FORMAT_EVIDENCE = 4;
+
 export interface EvidencePost {
   id: string;
   views: number;
+  /** Spark Ads lifetime totals; set on registration playbooks. */
+  spend?: number;
+  registrations?: number;
+  cpr?: number;
   ageDays: number;
   tier: "top" | "middle" | "bottom" | "too_new";
   type: string | null;
@@ -57,9 +69,17 @@ export interface StatRow {
   bottomShare: number;
   lift: number;
   medianViews: number;
+  medianCpr?: number | null;
+}
+
+export interface Counterexample {
+  id: string;
+  kind: "high_views_low_registrations" | "low_views_good_registrations";
 }
 
 export interface PlaybookEvidence {
+  /** Missing on playbooks from before registration playbooks, which are all views-based. */
+  outcome?: PlaybookOutcome;
   market: string;
   generatedAt: string;
   weekStart: string;
@@ -72,6 +92,11 @@ export interface PlaybookEvidence {
   stats: StatRow[];
   numeric: Array<{ key: string; label: string; labelEn: string; topMedian: number | null; bottomMedian: number | null }>;
   posts: EvidencePost[];
+  /** Registration playbooks: the most a top-tier post paid per registration, the median, and analyzed posts left out for thin evidence. */
+  topMaxCpr?: number;
+  medianCpr?: number;
+  insufficientPosts?: number;
+  counterexamples?: Counterexample[];
 }
 
 export interface PlaybookPattern {
@@ -98,6 +123,8 @@ export interface PlaybookDocument {
   anti_patterns: PlaybookAntiPattern[];
   weekly_changes: Array<{ type: "new" | "strengthened" | "weakened" | "retired" | "first_version"; pattern_id: string; change_zh: string; change_en: string }>;
   open_questions: Array<{ zh: string; en: string }>;
+  /** Posts that break the patterns (missing on older playbooks). */
+  exceptions?: Array<{ kind: "high_views_low_registrations" | "low_views_good_registrations" | "copy_failed" | "other"; zh: string; en: string; post_ids: string[] }>;
   sample_caveat_zh: string; sample_caveat_en: string;
 }
 
@@ -132,13 +159,30 @@ export function marketWeekStart(market: string, now: string): string {
 const COMPUTED_CATEGORIES: Array<keyof ComputedFeatures> = ["format_type", "duration_band", "pacing_band", "has_speech", "music_type", "brand_in_caption"];
 const COMPUTED_NUMBERS: Array<keyof ComputedFeatures> = ["duration_s", "cuts_per_10s", "image_count", "speech_words_per_min", "first_speech_s", "on_screen_text_per_frame", "hashtag_count"];
 
-interface FeatureRow { post_id: string; summary_zh: string | null; tags_json: string; analysis_json: string; type: string | null; published_at: string | null; bound_at: string; views: number | null }
+interface FeatureRow { post_id: string; summary_zh: string | null; tags_json: string; analysis_json: string; type: string | null; published_at: string | null; bound_at: string; views: number | null; spend: number | null; registrations: number | null }
+
+/** Posts with enough Spark Ads evidence, per format; only formats with MIN_FORMAT_EVIDENCE of them count. */
+function registrationEvidence(db: ContentLabDatabase, market: string): Map<string, string[]> {
+  const rows = db.prepare(`SELECT p.id, COALESCE(p.type, 'video') AS type FROM posts p WHERE p.market=?
+    AND json_extract(p.ads_json, '$.lifetime.spend') >= ? AND json_extract(p.ads_json, '$.lifetime.registrations') >= ?
+    AND EXISTS (SELECT 1 FROM post_features f WHERE f.post_id=p.id)`).all(market, EVIDENCE_MIN_SPEND, EVIDENCE_MIN_REGISTRATIONS) as Array<{ id: string; type: string }>;
+  const groups = new Map<string, string[]>();
+  for (const row of rows) groups.set(row.type, [...(groups.get(row.type) ?? []), row.id]);
+  return new Map([...groups].filter(([, ids]) => ids.length >= MIN_FORMAT_EVIDENCE));
+}
+
+/** Registrations once the market has enough promoted posts with evidence; views until then. */
+export function playbookOutcome(db: ContentLabDatabase, market: string): PlaybookOutcome {
+  const count = [...registrationEvidence(db, market).values()].reduce((sum, ids) => sum + ids.length, 0);
+  return count >= MIN_PLAYBOOK_POSTS ? "registrations" : "views";
+}
 
 /** Program-computed evidence: which tags and features separate the market's top posts from its bottom half. */
-export function buildEvidence(db: ContentLabDatabase, taxonomy: Taxonomy, market: string, now: string, excludePostIds: string[] = [], labelsPath = ""): PlaybookEvidence {
+export function buildEvidence(db: ContentLabDatabase, taxonomy: Taxonomy, market: string, now: string, excludePostIds: string[] = [], labelsPath = "", outcome: PlaybookOutcome = "views"): PlaybookEvidence {
   const labels = loadLabels(labelsPath);
   const rows = db.prepare(`
     SELECT p.id AS post_id, p.type, p.published_at, p.bound_at, f.summary_zh, f.tags_json, f.analysis_json,
+      json_extract(p.ads_json, '$.lifetime.spend') AS spend, json_extract(p.ads_json, '$.lifetime.registrations') AS registrations,
       (SELECT views FROM metric_snapshots s WHERE s.post_id=p.id AND s.ok=1 ORDER BY captured_at DESC LIMIT 1) AS views
     FROM posts p JOIN post_features f ON f.post_id=p.id
       AND f.version=(SELECT MAX(version) FROM post_features WHERE post_id=p.id)
@@ -152,12 +196,39 @@ export function buildEvidence(db: ContentLabDatabase, taxonomy: Taxonomy, market
     return {
       id: row.post_id, views: row.views!, ageDays, tier: ageDays < MIN_AGE_DAYS ? "too_new" : "middle", type: row.type,
       summaryZh: row.summary_zh ?? "", summaryEn: analysis.summary_en ?? "", formulaZh: analysis.formula_zh ?? "", formulaEn: analysis.formula_en ?? "", hookZh: analysis.hook_translation_zh ?? "", tags, computed: analysis.computed ?? {},
+      ...(outcome === "registrations" && row.spend !== null && row.registrations ? { spend: row.spend, registrations: row.registrations, cpr: row.spend / row.registrations } : {}),
     } satisfies EvidencePost;
   });
-  const eligible = posts.filter((post) => post.tier !== "too_new").sort((a, b) => b.views - a.views);
-  const topSize = Math.max(1, Math.ceil(eligible.length * 0.25));
-  const bottomSize = Math.floor(eligible.length / 2);
-  eligible.forEach((post, index) => { post.tier = index < topSize ? "top" : index >= eligible.length - bottomSize ? "bottom" : "middle"; });
+  let eligible: EvidencePost[];
+  const counterexamples: Counterexample[] = [];
+  let insufficientPosts = 0;
+  if (outcome === "registrations") {
+    // Rank by registration cost within each format (knowledge base: compare like with like); thin evidence is left out, not counted as failure.
+    const groups = registrationEvidence(db, market);
+    const inEvidence = new Set([...groups.values()].flat());
+    eligible = [];
+    for (const ids of groups.values()) {
+      const group = posts.filter((post) => ids.includes(post.id) && post.cpr !== undefined).sort((a, b) => a.cpr! - b.cpr!);
+      const top = Math.max(1, Math.ceil(group.length * 0.25));
+      const bottom = Math.floor(group.length / 2);
+      group.forEach((post, index) => { post.tier = index < top ? "top" : index >= group.length - bottom ? "bottom" : "middle"; });
+      eligible.push(...group);
+    }
+    insufficientPosts = posts.filter((post) => !inEvidence.has(post.id)).length;
+    // Views and registrations disagree (knowledge base GP-004): the most-viewed quarter paying the most, the least-viewed half paying the least.
+    const byViews = [...eligible].sort((a, b) => b.views - a.views);
+    const viewTop = new Set(byViews.slice(0, Math.ceil(byViews.length * 0.25)).map((post) => post.id));
+    const viewBottom = new Set(byViews.slice(byViews.length - Math.floor(byViews.length / 2)).map((post) => post.id));
+    for (const post of eligible) {
+      if (post.tier === "bottom" && viewTop.has(post.id)) counterexamples.push({ id: post.id, kind: "high_views_low_registrations" });
+      if (post.tier === "top" && viewBottom.has(post.id)) counterexamples.push({ id: post.id, kind: "low_views_good_registrations" });
+    }
+  } else {
+    eligible = posts.filter((post) => post.tier !== "too_new").sort((a, b) => b.views - a.views);
+    const topSize = Math.max(1, Math.ceil(eligible.length * 0.25));
+    const bottomSize = Math.floor(eligible.length / 2);
+    eligible.forEach((post, index) => { post.tier = index < topSize ? "top" : index >= eligible.length - bottomSize ? "bottom" : "middle"; });
+  }
 
   const features = new Map<string, { label: string; labelEn: string; ids: Set<string> }>();
   const add = (key: string, label: string, labelEn: string, id: string): void => {
@@ -184,7 +255,9 @@ export function buildEvidence(db: ContentLabDatabase, taxonomy: Taxonomy, market
     const bottomPosts = bottom.filter((post) => entry.ids.has(post.id)).length;
     const topShare = top.length ? topPosts / top.length : 0;
     const bottomShare = bottom.length ? bottomPosts / bottom.length : 0;
-    return [{ key, label: entry.label, labelEn: entry.labelEn, posts: members.length, topPosts, bottomPosts, topShare: round(topShare), bottomShare: round(bottomShare), lift: round(topShare - bottomShare), medianViews: Math.round(median(members.map((post) => post.views)) ?? 0) }];
+    const cprs = members.map((post) => post.cpr).filter((value): value is number => value !== undefined);
+    return [{ key, label: entry.label, labelEn: entry.labelEn, posts: members.length, topPosts, bottomPosts, topShare: round(topShare), bottomShare: round(bottomShare), lift: round(topShare - bottomShare), medianViews: Math.round(median(members.map((post) => post.views)) ?? 0),
+      ...(outcome === "registrations" ? { medianCpr: cprs.length ? round(median(cprs)!, 2) : null } : {}) }];
   }).sort((a, b) => Math.abs(b.lift) - Math.abs(a.lift) || b.posts - a.posts);
   const numeric = COMPUTED_NUMBERS.map((key) => {
     const values = (group: EvidencePost[]) => group.map((post) => post.computed[key]).filter((value): value is number => typeof value === "number");
@@ -192,8 +265,18 @@ export function buildEvidence(db: ContentLabDatabase, taxonomy: Taxonomy, market
     const bottomMedian = median(values(bottom));
     return { key: `num:${key}`, label: computedLabel(labels, key, null, "zh"), labelEn: computedLabel(labels, key, null, "en"), topMedian: topMedian === null ? null : round(topMedian, 1), bottomMedian: bottomMedian === null ? null : round(bottomMedian, 1) };
   }).filter((row) => row.topMedian !== null || row.bottomMedian !== null);
+  if (outcome === "registrations") {
+    const cprs = eligible.map((post) => post.cpr!);
+    return {
+      outcome, market, generatedAt: now, weekStart: marketWeekStart(market, now), eligiblePosts: eligible.length,
+      tooNewPosts: 0, topSize: top.length, bottomSize: bottom.length,
+      topMinViews: Math.min(...top.map((post) => post.views)), medianViews: Math.round(median(eligible.map((post) => post.views)) ?? 0),
+      topMaxCpr: round(Math.max(...top.map((post) => post.cpr!)), 2), medianCpr: round(median(cprs) ?? 0, 2), insufficientPosts, counterexamples,
+      stats, numeric, posts: eligible,
+    };
+  }
   return {
-    market, generatedAt: now, weekStart: marketWeekStart(market, now), eligiblePosts: eligible.length,
+    outcome, market, generatedAt: now, weekStart: marketWeekStart(market, now), eligiblePosts: eligible.length,
     tooNewPosts: posts.length - eligible.length, topSize: top.length, bottomSize: bottom.length,
     topMinViews: top.at(-1)?.views ?? 0, medianViews: Math.round(median(eligible.map((post) => post.views)) ?? 0),
     stats, numeric, posts: [...eligible, ...posts.filter((post) => post.tier === "too_new")],
@@ -205,12 +288,32 @@ const pct = (value: number): string => `${Math.round(value * 100)}%`;
 
 /** The program, not the model, turns stat keys into numbers. */
 export function renderStat(row: StatRow, evidence: PlaybookEvidence, lang: Lang = "zh"): string {
+  if (evidence.outcome === "registrations") {
+    const cost = row.medianCpr == null ? "—" : `$${row.medianCpr.toFixed(2)}`;
+    return lang === "zh"
+      ? `${row.label} — 低注册成本组 ${row.topPosts}/${evidence.topSize}（${pct(row.topShare)}），高注册成本组 ${row.bottomPosts}/${evidence.bottomSize}（${pct(row.bottomShare)}），具备此特征的 ${row.posts} 条帖子注册成本中位数 ${cost}`
+      : `${row.labelEn} — cheapest-registration tier ${row.topPosts}/${evidence.topSize} (${pct(row.topShare)}), costliest tier ${row.bottomPosts}/${evidence.bottomSize} (${pct(row.bottomShare)}); median cost per registration of the ${row.posts} posts with it: ${cost}`;
+  }
   return lang === "zh"
     ? `${row.label} — 高播放组 ${row.topPosts}/${evidence.topSize}（${pct(row.topShare)}），低播放组 ${row.bottomPosts}/${evidence.bottomSize}（${pct(row.bottomShare)}），具备此特征的 ${row.posts} 条帖子播放中位数 ${compact(row.medianViews)}`
     : `${row.labelEn} — top tier ${row.topPosts}/${evidence.topSize} (${pct(row.topShare)}), bottom tier ${row.bottomPosts}/${evidence.bottomSize} (${pct(row.bottomShare)}); median views of the ${row.posts} posts with it: ${compact(row.medianViews)}`;
 }
 
 function evidenceForModel(evidence: PlaybookEvidence): string {
+  if (evidence.outcome === "registrations") {
+    const money = (value: number | null | undefined): string => value == null ? "—" : `$${value.toFixed(2)}`;
+    return [
+      `Market ${evidence.market}. ${evidence.eligiblePosts} promoted posts with enough Spark Ads evidence (spend ≥ $${EVIDENCE_MIN_SPEND} and ≥ ${EVIDENCE_MIN_REGISTRATIONS} registrations), ranked by cost per registration within their own format. Top tier = the ${evidence.topSize} cheapest (≤ ${money(evidence.topMaxCpr)}); bottom tier = the ${evidence.bottomSize} costliest; median ${money(evidence.medianCpr)}. ${evidence.insufficientPosts ?? 0} other analyzed posts have too little ads evidence and are left out (not failures).`,
+      "Feature statistics (stat_key | description | top-tier share | bottom-tier share | lift | posts with it | their median cost per registration):",
+      ...evidence.stats.slice(0, 80).map((row) => `${row.key} | ${row.label} | ${pct(row.topShare)} | ${pct(row.bottomShare)} | ${row.lift >= 0 ? "+" : ""}${Math.round(row.lift * 100)}pp | ${row.posts} | ${money(row.medianCpr)}`),
+      "Numeric feature medians (stat_key | description | top tier | bottom tier):",
+      ...evidence.numeric.map((row) => `${row.key} | ${row.label} | ${row.topMedian ?? "—"} | ${row.bottomMedian ?? "—"}`),
+      "Posts (id | format | tier | cost per registration | registrations | views | hook | formula | summary):",
+      ...evidence.posts.map((post) => `${post.id} | ${post.type ?? "video"} | ${post.tier} | ${money(post.cpr)} | ${Math.round(post.registrations ?? 0)} | ${compact(post.views)} | ${post.hookZh} | ${post.formulaZh} | ${post.summaryZh}`),
+      "Counterexamples found by the program (id | kind):",
+      ...(evidence.counterexamples?.length ? evidence.counterexamples.map((item) => `${item.id} | ${item.kind}`) : ["none"]),
+    ].join("\n");
+  }
   const lines = [
     `Market ${evidence.market}. ${evidence.eligiblePosts} analyzed posts at least ${MIN_AGE_DAYS} days old. Top tier = the ${evidence.topSize} most-viewed (≥ ${compact(evidence.topMinViews)} views); bottom tier = the ${evidence.bottomSize} least-viewed; median ${compact(evidence.medianViews)} views. Views are current totals, so older posts had more time to grow.`,
     "Feature statistics (stat_key | description | top-tier share | bottom-tier share | lift | posts with it | their median views):",
@@ -240,6 +343,7 @@ export const playbookSchema: Record<string, unknown> = object({
   anti_patterns: { type: "array", items: object({ id: str, ...bilingual("title"), ...bilingual("description"), stat_keys: ids, example_post_ids: ids }) },
   weekly_changes: { type: "array", items: object({ type: { type: "string", enum: ["new", "strengthened", "weakened", "retired", "first_version"] }, pattern_id: str, ...bilingual("change") }) },
   open_questions: { type: "array", items: object({ zh: str, en: str }) },
+  exceptions: { type: "array", items: object({ kind: { type: "string", enum: ["high_views_low_registrations", "low_views_good_registrations", "copy_failed", "other"] }, zh: str, en: str, post_ids: ids }) },
   ...bilingual("sample_caveat"),
 });
 
@@ -275,6 +379,17 @@ export function validatePlaybook(value: unknown, evidence: PlaybookEvidence): Pl
   const summarySnippet = numberSnippet(`${document.summary_zh} ${document.summary_en}`);
   if (summarySnippet) throw new Error(`The playbook summary writes a statistic in prose ("${summarySnippet}")`);
   if (!Array.isArray(document.open_questions) || document.open_questions.some((question) => !question?.zh || !question?.en)) throw new Error("Open questions need both languages");
+  for (const item of document.exceptions ?? []) {
+    if (!item.zh?.trim() || !item.en?.trim()) throw new Error("Exceptions need both languages");
+    const unknownPost = item.post_ids.find((id) => !postIds.has(id));
+    if (unknownPost) throw new Error(`An exception cites unknown post ${unknownPost}`);
+    const snippet = numberSnippet(`${item.zh} ${item.en}`) ?? (evidence.outcome === "registrations" ? /\$\s?\d/.exec(`${item.zh} ${item.en}`)?.[0] ?? null : null);
+    if (snippet) throw new Error(`An exception writes a statistic in prose ("${snippet}")`);
+  }
+  if (evidence.outcome === "registrations") {
+    const money = [...items.map(([item, keys]) => keys.map((key) => String(item[key])).join(" ")), document.summary_zh, document.summary_en].find((text) => /\$\s?\d/.test(text));
+    if (money) throw new Error(`Costs come from stat_keys, never prose ("${/\$\s?\d[\d.,]*/.exec(money)?.[0]}")`);
+  }
   return document;
 }
 
@@ -294,11 +409,18 @@ export function renderPlaybookMarkdown(playbook: StoredPlaybook, lang: Lang = "z
   const text = (item: object, name: string): string => String((item as Record<string, unknown>)[`${name}_${lang}`] ?? (item as Record<string, unknown>)[`${name}_zh`] ?? "");
   const legacy = (document as unknown as { open_questions_zh?: string[] }).open_questions_zh ?? [];
   const questions = document.open_questions ?? legacy.map((question) => ({ zh: question, en: question }));
+  const registrations = evidence.outcome === "registrations";
+  const money = (value: number | null | undefined): string => value == null ? "—" : `$${value.toFixed(2)}`;
+  const exceptionKinds: Record<string, [string, string]> = {
+    high_views_low_registrations: ["高播放、注册差", "High views, weak registrations"], low_views_good_registrations: ["低播放、注册好", "Low views, strong registrations"],
+    copy_failed: ["照抄失败", "Copy that failed"], other: ["其他例外", "Other exception"],
+  };
   const statLine = (key: string): string | null => {
     const row = evidence.stats.find((entry) => entry.key === key);
     if (row) return renderStat(row, evidence, lang);
     const numeric = evidence.numeric.find((entry) => entry.key === key);
     if (!numeric) return null;
+    if (registrations) return zh ? `${numeric.label} — 低注册成本组中位数 ${numeric.topMedian ?? "—"}，高注册成本组中位数 ${numeric.bottomMedian ?? "—"}` : `${numeric.labelEn} — cheapest-tier median ${numeric.topMedian ?? "—"}, costliest-tier median ${numeric.bottomMedian ?? "—"}`;
     return zh ? `${numeric.label} — 高播放组中位数 ${numeric.topMedian ?? "—"}，低播放组中位数 ${numeric.bottomMedian ?? "—"}` : `${numeric.labelEn} — top-tier median ${numeric.topMedian ?? "—"}, bottom-tier median ${numeric.bottomMedian ?? "—"}`;
   };
   const block = (item: PlaybookPattern | PlaybookAntiPattern): string => [
@@ -306,15 +428,19 @@ export function renderPlaybookMarkdown(playbook: StoredPlaybook, lang: Lang = "z
     "why_it_works_zh" in item ? `**${zh ? "为什么有效" : "Why it works"}**: ${text(item, "why_it_works")}` : "",
     "how_to_apply_zh" in item ? `**${zh ? "怎么用" : "How to apply"}**: ${text(item, "how_to_apply")}` : "",
     ...item.stat_keys.map(statLine).filter(Boolean).map((line) => `- ${line}`),
-    item.example_post_ids.length ? `- ${zh ? "案例" : "Examples"}: ${item.example_post_ids.map((id) => { const post = evidence.posts.find((entry) => entry.id === id); return post ? `${id.slice(0, 8)} (${compact(post.views)})` : id; }).join(", ")}` : "",
+    item.example_post_ids.length ? `- ${zh ? "案例" : "Examples"}: ${item.example_post_ids.map((id) => { const post = evidence.posts.find((entry) => entry.id === id); return post ? `${id.slice(0, 8)} (${registrations ? money(post.cpr) : compact(post.views)})` : id; }).join(", ")}` : "",
   ].filter(Boolean).join("\n");
   return [
     zh ? `# ${playbook.market} 爆款共性文档 v${playbook.version}` : `# ${playbook.market} viral playbook v${playbook.version}`,
-    zh ? `样本：${evidence.eligiblePosts} 条（高播放组 ${evidence.topSize} 条，门槛 ${compact(evidence.topMinViews)}；中位数 ${compact(evidence.medianViews)}）· 周起始 ${playbook.weekStart.slice(0, 10)}`
+    registrations
+      ? (zh ? `以注册成本为准 · 样本：${evidence.eligiblePosts} 条有足够投放数据的帖子，按同形式比较（低注册成本组 ${evidence.topSize} 条，≤ ${money(evidence.topMaxCpr)}；中位数 ${money(evidence.medianCpr)}）；另有 ${evidence.insufficientPosts ?? 0} 条证据不足，未计入 · 周起始 ${playbook.weekStart.slice(0, 10)}`
+        : `By cost per registration · sample: ${evidence.eligiblePosts} posts with enough Spark Ads evidence, compared within format (cheapest tier ${evidence.topSize}, ≤ ${money(evidence.topMaxCpr)}; median ${money(evidence.medianCpr)}); ${evidence.insufficientPosts ?? 0} more have too little evidence and are left out · week of ${playbook.weekStart.slice(0, 10)}`)
+      : zh ? `样本：${evidence.eligiblePosts} 条（高播放组 ${evidence.topSize} 条，门槛 ${compact(evidence.topMinViews)}；中位数 ${compact(evidence.medianViews)}）· 周起始 ${playbook.weekStart.slice(0, 10)}`
       : `Sample: ${evidence.eligiblePosts} posts (top tier ${evidence.topSize}, threshold ${compact(evidence.topMinViews)}; median ${compact(evidence.medianViews)}) · week of ${playbook.weekStart.slice(0, 10)}`,
     text(document, "summary"),
     zh ? "## 爆款共性" : "## Patterns", ...document.patterns.map(block),
     zh ? "## 反模式" : "## Anti-patterns", ...document.anti_patterns.map(block),
+    ...(document.exceptions?.length ? [zh ? "## 和规律不符的例外" : "## Exceptions to the patterns", ...document.exceptions.map((item) => `- [${exceptionKinds[item.kind]?.[zh ? 0 : 1] ?? item.kind}] ${item[lang]}${item.post_ids.length ? ` (${item.post_ids.map((id) => { const post = evidence.posts.find((entry) => entry.id === id); return post ? `${id.slice(0, 8)} ${registrations ? money(post.cpr) : compact(post.views)}` : id.slice(0, 8); }).join(", ")})` : ""}`)] : []),
     zh ? "## 本周变化" : "## This week's changes", ...document.weekly_changes.map((change) => `- [${change.type}] ${change.pattern_id}: ${text(change, "change")}`),
     zh ? "## 待验证" : "## Open questions", ...questions.map((question) => `- ${question[lang]}`),
     `> ${text(document, "sample_caveat")}`,
@@ -322,20 +448,32 @@ export function renderPlaybookMarkdown(playbook: StoredPlaybook, lang: Lang = "z
 }
 
 /** Build this week's evidence, let the model write the playbook, and store it as a new version. */
-export async function generatePlaybook(db: ContentLabDatabase, config: ServiceConfig, market: string, now = new Date().toISOString(), options: { excludePostIds?: string[] } = {}): Promise<StoredPlaybook> {
+export async function generatePlaybook(db: ContentLabDatabase, config: ServiceConfig, market: string, now = new Date().toISOString(), options: { excludePostIds?: string[]; outcome?: PlaybookOutcome } = {}): Promise<StoredPlaybook> {
   const taxonomy = loadTaxonomy(config.taxonomyPath);
+  const outcome = options.outcome ?? playbookOutcome(db, market);
+  const registrations = outcome === "registrations";
   // Excluding posts lets a backtest assess them against a playbook that never saw them.
-  const evidence = buildEvidence(db, taxonomy, market, now, options.excludePostIds, config.taxonomyPath);
-  if (evidence.eligiblePosts < MIN_PLAYBOOK_POSTS) throw new Error(`${market} has ${evidence.eligiblePosts} analyzed posts with views; a playbook needs ${MIN_PLAYBOOK_POSTS}`);
+  const evidence = buildEvidence(db, taxonomy, market, now, options.excludePostIds, config.taxonomyPath, outcome);
+  if (evidence.eligiblePosts < MIN_PLAYBOOK_POSTS) throw new Error(`${market} has ${evidence.eligiblePosts} analyzed posts with ${registrations ? "enough ads evidence" : "views"}; a playbook needs ${MIN_PLAYBOOK_POSTS}`);
   const previous = latestPlaybook(db, market);
   const newSince = previous ? evidence.posts.filter((post) => !previous.evidence.posts.some((old) => old.id === post.id)) : [];
+  const switched = previous && (previous.evidence.outcome ?? "views") !== outcome;
   const prompt = [
-    "You maintain the viral-content playbook for the dating and social app PopUp in one TikTok market. The playbook is the reference every newly bound post is compared against, so it must describe concrete, reusable content patterns that separate the most-viewed posts from the least-viewed ones.",
+    registrations
+      ? "You maintain the playbook for the dating and social app PopUp in one TikTok market. Its goal is registrations (the knowledge base's primary KPI), not views: it must describe concrete, reusable content patterns that separate the posts that bring registrations cheapest on Spark Ads from the costliest ones. Every newly bound post is compared against it."
+      : "You maintain the viral-content playbook for the dating and social app PopUp in one TikTok market. The playbook is the reference every newly bound post is compared against, so it must describe concrete, reusable content patterns that separate the most-viewed posts from the least-viewed ones.",
     "Rules:",
+    ...(registrations ? [
+      "- Entertainment is not download motivation (GP-004): explain each pattern through why a viewer would want PopUp (desire → why PopUp → can I have this), not through what makes the video watchable.",
+      "- Posts were ranked against others of the same format only; a format difference alone is not a pattern.",
+      "- `exceptions`: posts that break the patterns, starting with the program's counterexamples (high views but costly registrations, low views but cheap registrations) and any post that copies a top pattern yet sits in the bottom tier (copy_failed). Say what the exception teaches; cite post_ids. Never claim causation is proven.",
+      "- Costs, registrations and percentages never appear in prose; the program prints them for each cited stat_key.",
+    ] : ["- `exceptions`: posts that clearly break the patterns, if any; otherwise an empty list."]),
     "- Base every pattern on the statistics and post summaries below. Prefer features with a large positive lift for patterns and a large negative lift for anti-patterns; combine related tags into one pattern when the posts show they work together.",
     "- Each pattern cites its supporting `stat_keys` (exact keys from the tables) and 1–4 `example_post_ids` from the top tier (anti-patterns: from the bottom tier).",
     "- Never write view counts, percentages or other statistics in the prose; the program prints the numbers for each cited stat_key. Write concrete creative guidance instead: what the first second shows, how the story turns, how PopUp appears.",
     "- 3–7 patterns and 2–5 anti-patterns. ids are P1, P2… and A1, A2…; keep an existing id when the pattern is the same as in the previous version.",
+    switched ? "- The previous version ranked posts by views; this one ranks by registration cost. `weekly_changes` lists which earlier patterns hold, weaken or are retired under the new goal, citing pattern ids; start new ids where a pattern is new." : "",
     previous ? "- `weekly_changes`: compare with the previous version below and list what is new, strengthened, weakened or retired, citing pattern ids." : "- This is the first version: `weekly_changes` has one entry of type first_version with pattern_id \"-\".",
     "- `sample_caveat`: state honestly how far this small, unevenly aged sample can be trusted.",
     "- Language: every `_zh` field is Simplified Chinese (简体中文, never Traditional characters); every `_en` field says the same in natural English. `open_questions` items carry both `zh` and `en`.",
@@ -366,12 +504,17 @@ export function postsAwaitingAssessment(db: ContentLabDatabase, market: string):
     GROUP BY p.id`).all(market) as Array<{ postId: string; version: number }>;
 }
 
-/** Markets whose playbook is missing or from an earlier week, and that have enough posts. */
+/** The weekly playbook job; a market that gains enough ads evidence mid-week gets its registration playbook right away. */
+export function playbookJobKey(db: ContentLabDatabase, market: string, now: string): string {
+  return `playbook:${market}:${marketWeekStart(market, now)}${playbookOutcome(db, market) === "registrations" ? ":registrations" : ""}`;
+}
+
+/** Markets whose playbook is missing, from an earlier week, or still views-based although registration evidence is ready, and that have enough posts. */
 export function marketsDueForPlaybook(db: ContentLabDatabase, now: string): string[] {
   const markets = (db.prepare("SELECT DISTINCT market FROM posts WHERE market IS NOT NULL").all() as Array<{ market: string }>).map((row) => row.market);
   return markets.filter((market) => {
-    const latest = db.prepare("SELECT week_start FROM playbooks WHERE market=? ORDER BY version DESC LIMIT 1").get(market) as { week_start: string } | undefined;
-    if (latest && latest.week_start >= marketWeekStart(market, now)) return false;
+    const latest = db.prepare("SELECT week_start, json_extract(evidence_json, '$.outcome') AS outcome FROM playbooks WHERE market=? ORDER BY version DESC LIMIT 1").get(market) as { week_start: string; outcome: string | null } | undefined;
+    if (latest && latest.week_start >= marketWeekStart(market, now) && (latest.outcome ?? "views") === playbookOutcome(db, market)) return false;
     // Wait for queued re-analyses so the playbook is built from the current pipeline's output.
     const pending = db.prepare(`SELECT 1 FROM jobs j JOIN posts p ON p.id=json_extract(j.payload_json, '$.postId')
       WHERE j.kind='analyze' AND j.status IN ('queued','running','failed') AND j.attempts < j.max_attempts AND p.market=? LIMIT 1`).get(market);

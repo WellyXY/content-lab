@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { checkScriptCoverage } from "../src/analyzer/codex.js";
 import { chooseFrameTimes, parseShowinfoTimes } from "../src/analyzer/media.js";
 import {
-  buildEvidence, marketWeekStart, marketsDueForPlaybook, renderStat, validateAssessment, validatePlaybook,
+  buildEvidence, marketWeekStart, marketsDueForPlaybook, playbookJobKey, playbookOutcome, renderStat, validateAssessment, validatePlaybook,
   type PlaybookDocument, type StoredPlaybook,
 } from "../src/analyzer/playbook.js";
 import type { AnalysisOutput, Taxonomy } from "../src/analyzer/schema.js";
@@ -138,5 +138,59 @@ describe("bilingual labels", () => {
       expect(labels.dimensions[dimension]?.every(Boolean)).toBe(true);
       for (const value of Object.keys(definition.values)) expect(labels.values[dimension]?.[value]?.every(Boolean), `${dimension}.${value}`).toBe(true);
     }
+  });
+});
+
+describe("registration playbook", () => {
+  function promoted() {
+    const db = seededDatabase();
+    // Contrast openings bring cheap registrations; p0 has the most views but the costliest registrations, p11 the fewest views but the cheapest.
+    for (let index = 0; index < 12; index += 1) {
+      const cpr = index === 0 ? 9 : index === 11 ? 0.5 : index < 4 ? 1 + index * 0.1 : 2 + index * 0.1;
+      const spend = index === 5 ? 20 : 300;
+      db.prepare("UPDATE posts SET ads_json=? WHERE id=?").run(JSON.stringify({ lifetime: { spend, registrations: spend / cpr } }), `p${index}`);
+    }
+    return db;
+  }
+
+  it("ranks promoted posts by registration cost, leaves thin evidence out and finds counterexamples", () => {
+    const db = promoted();
+    expect(playbookOutcome(db, "TR")).toBe("registrations");
+    const evidence = buildEvidence(db, taxonomy, "TR", "2026-10-08T00:00:00.000Z", [], "", "registrations");
+    expect(evidence).toMatchObject({ outcome: "registrations", eligiblePosts: 11, topSize: 3, bottomSize: 5, insufficientPosts: 1, topMaxCpr: 1.2 });
+    expect(evidence.posts.filter((post) => post.tier === "top").map((post) => post.id).sort()).toEqual(["p1", "p11", "p2"]);
+    expect(evidence.counterexamples).toEqual(expect.arrayContaining([{ id: "p0", kind: "high_views_low_registrations" }, { id: "p11", kind: "low_views_good_registrations" }]));
+    const contrast = evidence.stats.find((row) => row.key === "tag:hook_type=contrast")!;
+    expect(renderStat(contrast, evidence)).toContain("低注册成本组");
+    expect(renderStat(contrast, evidence)).toMatch(/注册成本中位数 \$\d/);
+    db.close();
+  });
+
+  it("stays on views until a market has enough promoted posts, and switches mid-week once it does", () => {
+    const db = seededDatabase();
+    expect(playbookOutcome(db, "TR")).toBe("views");
+    const now = "2026-10-08T00:00:00.000Z";
+    db.prepare("INSERT INTO playbooks(id, market, version, week_start, created_at, model, evidence_json, document_json) VALUES ('pb','TR',1,?,?,'m','{}','{}')").run(marketWeekStart("TR", now), now);
+    expect(marketsDueForPlaybook(db, now)).toEqual([]);
+    for (let index = 0; index < 12; index += 1) db.prepare("UPDATE posts SET ads_json=? WHERE id=?").run(JSON.stringify({ lifetime: { spend: 100, registrations: 50 } }), `p${index}`);
+    expect(marketsDueForPlaybook(db, now)).toEqual(["TR"]);
+    expect(playbookJobKey(db, "TR", now)).toMatch(/:registrations$/);
+    db.close();
+  });
+
+  it("keeps costs out of prose and checks the exceptions", () => {
+    const db = promoted();
+    const evidence = buildEvidence(db, taxonomy, "TR", "2026-10-08T00:00:00.000Z", [], "", "registrations");
+    const pattern = { id: "P1", title_zh: "对比开场", title_en: "Contrast opening", description_zh: "第一秒就给出对比。", description_en: "Contrast first.", why_it_works_zh: "让人想要同样的体验。", why_it_works_en: "Viewers want the same.", how_to_apply_zh: "先放别人的版本。", how_to_apply_en: "Show theirs first.", stat_keys: ["tag:hook_type=contrast"], example_post_ids: ["p1"] };
+    const document: PlaybookDocument = {
+      summary_zh: "对比开场带来便宜的注册。", summary_en: "Contrast openings bring cheap registrations.",
+      patterns: [pattern, { ...pattern, id: "P2" }], anti_patterns: [{ id: "A1", title_zh: "没有钩子", title_en: "No hook", description_zh: "直接进入。", description_en: "No hook.", stat_keys: ["tag:hook_type=weak"], example_post_ids: ["p10"] }],
+      weekly_changes: [], open_questions: [], sample_caveat_zh: "样本小。", sample_caveat_en: "Small sample.",
+      exceptions: [{ kind: "high_views_low_registrations", zh: "播放很高但没人想下载", en: "Watched a lot, few wanted the app", post_ids: ["p0"] }],
+    };
+    expect(validatePlaybook(document, evidence).exceptions).toHaveLength(1);
+    expect(() => validatePlaybook({ ...document, summary_zh: "注册成本 $1.20" }, evidence)).toThrow(/Costs come from stat_keys/);
+    expect(() => validatePlaybook({ ...document, exceptions: [{ ...document.exceptions![0]!, post_ids: ["nope"] }] }, evidence)).toThrow(/unknown post/);
+    db.close();
   });
 });

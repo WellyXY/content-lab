@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { syncEvaluation } from "./analyzer/evaluate.js";
 import { latestPlaybook, syncPlaybook } from "./analyzer/playbook.js";
 import { syncPostReadModel } from "./collector.js";
 import { loadConfig } from "./config.js";
@@ -36,7 +37,7 @@ try {
       });
       features += 1;
     }
-    const prediction = db.prepare("SELECT * FROM predictions WHERE post_id=? ORDER BY made_at DESC LIMIT 1").get(post.id) as Record<string, unknown> | undefined;
+    const prediction = db.prepare("SELECT * FROM predictions WHERE post_id=? AND id NOT LIKE 'eval-%' ORDER BY made_at DESC LIMIT 1").get(post.id) as Record<string, unknown> | undefined;
     if (prediction) {
       putSyncEvent(db, "prediction", String(prediction.id), {
         id: prediction.id, postId: external, sitePostId: post.site_post_id, localPostId: post.id, stage: prediction.stage, madeAt: prediction.made_at,
@@ -45,6 +46,8 @@ try {
       });
       predictions += 1;
     }
+    const evaluation = config.siteEvalSync ? db.prepare("SELECT id FROM predictions WHERE post_id=? AND id LIKE 'eval-%' ORDER BY made_at DESC LIMIT 1").get(post.id) as { id: string } | undefined : undefined;
+    if (evaluation) { syncEvaluation(db, evaluation.id); predictions += 1; }
   }
   let playbooks = 0;
   if (config.sitePlaybookSync) {

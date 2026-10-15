@@ -63,6 +63,7 @@ export default function PostsPage() {
       if (sort === "views") return b.views - a.views;
       if (sort === "newest") return new Date(b.boundAt).getTime() - new Date(a.boundAt).getTime();
       if (sort === "spend" || sort === "registrations" || sort === "cpr") return adsSortValue(b, sort) - adsSortValue(a, sort) || b.views - a.views;
+      if (sort === "registrationPotential") return (b.registrationPotential ?? -1) - (a.registrationPotential ?? -1) || (b.creativeScore ?? -1) - (a.creativeScore ?? -1) || b.views - a.views;
       if (sort === "potential") return (a.potential ? POTENTIAL_RANK[a.potential] : 3) - (b.potential ? POTENTIAL_RANK[b.potential] : 3) || b.views - a.views;
       return b.delta24h - a.delta24h;
     });
@@ -97,14 +98,14 @@ export default function PostsPage() {
           </Select>
           <Select onValueChange={setSort} value={sort}>
             <SelectTrigger aria-label={t("排序", "Sort posts")} className="h-10 w-full border-white/10 bg-white/[0.025]"><ListFilter /><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="publishedAt">{t("发布时间（由新到旧）", "Published (newest first)")}</SelectItem><SelectItem value="delta24h">{t("24h 增量", "24h growth")}</SelectItem><SelectItem value="views">{t("累计播放", "Total views")}</SelectItem><SelectItem value="potential">{t("爆款可能性", "Viral potential")}</SelectItem><SelectItem value="spend">{t("投放花费", "Ad spend")}</SelectItem><SelectItem value="registrations">{t("注册数", "Registrations")}</SelectItem><SelectItem value="cpr">{t("注册成本（低到高）", "Cost/reg (low to high)")}</SelectItem><SelectItem value="newest">{t("最新绑定", "Recently bound")}</SelectItem></SelectContent>
+            <SelectContent><SelectItem value="publishedAt">{t("发布时间（由新到旧）", "Published (newest first)")}</SelectItem><SelectItem value="delta24h">{t("24h 增量", "24h growth")}</SelectItem><SelectItem value="views">{t("累计播放", "Total views")}</SelectItem><SelectItem value="registrationPotential">{t("注册潜力（高到低）", "Registration potential (high first)")}</SelectItem><SelectItem value="potential">{t("爆款可能性（旧版）", "Viral potential (legacy)")}</SelectItem><SelectItem value="spend">{t("投放花费", "Ad spend")}</SelectItem><SelectItem value="registrations">{t("注册数", "Registrations")}</SelectItem><SelectItem value="cpr">{t("注册成本（低到高）", "Cost/reg (low to high)")}</SelectItem><SelectItem value="newest">{t("最新绑定", "Recently bound")}</SelectItem></SelectContent>
           </Select>
         </div>
 
         <CardContent className="p-0">
           {loading ? <div className="space-y-2 p-5">{Array.from({ length: 6 }, (_, index) => <Skeleton className="h-16 w-full" key={index} />)}</div> : filtered.length ? (
             <Table>
-              <TableHeader><TableRow className="border-white/8 hover:bg-transparent"><TableHead className="pl-5 text-xs text-muted-foreground">{t("内容", "Post")}</TableHead><TableHead className="text-xs text-muted-foreground">{t("市场 / 项目", "Market / project")}</TableHead><TableHead className="text-xs text-muted-foreground">{t("发布时间", "Published")}</TableHead><TableHead className="text-right text-xs text-muted-foreground">{t("累计 VV", "Views")}</TableHead><TableHead className="text-right text-xs text-muted-foreground">{t("24h 增量", "24h growth")}</TableHead><PostAdsHeadCells /><TableHead className="hidden text-xs text-muted-foreground lg:table-cell">{t("Agent 标签", "Agent tags")}</TableHead><TableHead className="hidden pr-5 text-right text-xs text-muted-foreground sm:table-cell">{t("状态", "Status")}</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow className="border-white/8 hover:bg-transparent"><TableHead className="pl-5 text-xs text-muted-foreground">{t("内容", "Post")}</TableHead><TableHead className="text-xs text-muted-foreground">{t("市场 / 项目", "Market / project")}</TableHead><TableHead className="text-xs text-muted-foreground">{t("发布时间", "Published")}</TableHead><TableHead className="text-right text-xs text-muted-foreground">{t("累计 VV", "Views")}</TableHead><TableHead className="text-right text-xs text-muted-foreground">{t("24h 增量", "24h growth")}</TableHead><PostAdsHeadCells /><TableHead className="hidden text-right text-xs text-muted-foreground md:table-cell" title={t("知识库 v2 盲测分数（0–10），不看这条帖子的成效", "Knowledge base v2 blind scores (0–10), made without this post's results")}>{t("注册潜力 / 创意", "Reg. potential / creative")}</TableHead><TableHead className="hidden text-xs text-muted-foreground lg:table-cell">{t("Agent 标签", "Agent tags")}</TableHead><TableHead className="hidden pr-5 text-right text-xs text-muted-foreground sm:table-cell">{t("状态", "Status")}</TableHead></TableRow></TableHeader>
               <TableBody>{filtered.map((post) => <PostRow key={post.id} post={post} />)}</TableBody>
             </Table>
           ) : (
@@ -119,7 +120,9 @@ export default function PostsPage() {
 function PostRow({ post }: { post: PostSummary }) {
   const { t, lang } = useLocale();
   const status = statusCopy(post);
-  const potential = post.potential ? POTENTIAL_BADGE[post.potential] : null;
+  // The v1 views-only badge gives way to the v2 scores once a post has them.
+  const scored = post.registrationPotential != null || post.creativeScore != null;
+  const potential = post.potential && !scored ? POTENTIAL_BADGE[post.potential] : null;
   const published = formatPublishedTime(post.publishedAt, MARKETS.find((market) => market.code === post.market)?.timezone);
   return (
     <TableRow className="border-white/8 hover:bg-white/[0.025]">
@@ -144,6 +147,7 @@ function PostRow({ post }: { post: PostSummary }) {
       <TableCell className="text-right font-mono font-semibold">{compactNumber(post.lastCapturedAt ? post.views : null)}</TableCell>
       <TableCell className="text-right"><span className="font-mono font-semibold text-cyan-200">{post.lastCapturedAt ? `+${compactNumber(post.delta24h)}` : "—"}</span></TableCell>
       <PostAdsCells post={post} />
+      <TableCell className="hidden text-right md:table-cell"><ScorePair creative={post.creativeScore ?? null} registration={post.registrationPotential ?? null} /></TableCell>
       <TableCell className="hidden lg:table-cell"><div className="flex max-w-56 flex-wrap gap-1.5">{post.hookType ? <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{tagLabel(post.hookType, "hook_type", lang)}</Badge> : null}{post.topic ? <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{tagLabel(post.topic, "topic", lang)}</Badge> : null}{potential ? <Badge className={potential.className} variant="outline">{t(potential.label[0], potential.label[1])}</Badge> : null}</div></TableCell>
       <TableCell className="hidden pr-5 text-right sm:table-cell"><Badge className={status.className} variant="outline">{t(status.label[0], status.label[1])}</Badge><div className="mt-1.5 flex items-center justify-end gap-1 text-[11px] text-muted-foreground"><Clock3 className="size-3" /><RelativeTime value={post.lastCapturedAt} /></div></TableCell>
     </TableRow>
@@ -155,4 +159,11 @@ function statusCopy(post: PostSummary) {
   if (post.analysisState !== "complete") return { label: ["分析中", "Analyzing"] as const, className: "border-amber-300/20 bg-amber-300/8 text-amber-200" };
   if (post.trackingState === "stopped") return { label: ["已停止", "Stopped"] as const, className: "border-white/10 bg-white/[0.03] text-muted-foreground" };
   return { label: ["追踪中", "Tracking"] as const, className: "border-primary/20 bg-primary/8 text-primary" };
+}
+
+function ScorePair({ registration, creative }: { registration: number | null; creative: number | null }) {
+  const { t } = useLocale();
+  if (registration === null && creative === null) return <span className="text-sm text-muted-foreground">—</span>;
+  const tone = registration === null ? "text-muted-foreground" : registration >= 7 ? "text-primary" : registration >= 4 ? "text-amber-200" : "text-[#ff9c8d]";
+  return <span className="whitespace-nowrap font-mono text-sm tabular-nums" title={t(`注册潜力 ${registration ?? "—"} · 创意 ${creative ?? "—"}`, `Registration potential ${registration ?? "—"} · creative ${creative ?? "—"}`)}><span className={`font-semibold ${tone}`}>{registration ?? "—"}</span><span className="text-muted-foreground"> / {creative ?? "—"}</span></span>;
 }

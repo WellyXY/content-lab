@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { resetAgentThread, runAgentTurn } from "./agent/agent.js";
 import { AnalyzerQuotaError } from "./analyzer/claude.js";
 import { CodexAuthError, analyzePost } from "./analyzer/codex.js";
-import { assessPost, generatePlaybook, marketWeekStart, marketsDueForPlaybook, postsAwaitingAssessment } from "./analyzer/playbook.js";
+import { evaluatePost, scheduleEvaluations } from "./analyzer/evaluate.js";
+import { assessPost, generatePlaybook, marketsDueForPlaybook, playbookJobKey, postsAwaitingAssessment } from "./analyzer/playbook.js";
 import { capturePost, ingestPost, recordCodexAuthAlert, refreshPostMetadata, syncPostReadModel } from "./collector.js";
 import { loadConfig } from "./config.js";
 import { openDatabase, type ContentLabDatabase } from "./db/database.js";
@@ -132,6 +133,12 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
     log("playbook_generated", { market, version: playbook.version, patterns: playbook.document.patterns.length });
     return;
   }
+  if (job.kind === "evaluate") {
+    const payload = job.payload as { postId?: string; version?: number };
+    if (!payload.postId || !payload.version) throw new Error("Evaluate job is missing postId or version");
+    await evaluatePost(database, config, payload.postId, payload.version);
+    return;
+  }
   if (job.kind === "assess") {
     const payload = job.payload as { postId?: string; version?: number };
     if (!payload.postId || !payload.version) throw new Error("Assess job is missing postId or version");
@@ -172,7 +179,7 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
 
 const QUOTA_PAUSE_MS = 30 * 60_000;
 /** Jobs that call the model share the analysis pool and its quota pause. */
-const MODEL_JOB_KINDS = ["analyze", "assess", "playbook"];
+const MODEL_JOB_KINDS = ["analyze", "assess", "evaluate", "playbook"];
 /**
  * Recreations run one at a time in their own slot. The lease covers the worst case of every stage
  * (init 2 + transcription 10 + agent 30 + render 20 + re-encode 10 + uploads 4 minutes) with room to spare.
@@ -255,11 +262,13 @@ export async function runWorkerCycle(): Promise<void> {
   if (pending.queued) log("pending_binds_queued", pending);
   const adsKey = adsSyncDue(new Date());
   if (adsKey) enqueueJob(db, { kind: "ads_sync", payload: {}, idempotencyKey: adsKey, maxAttempts: 2 });
+  const evaluations = scheduleEvaluations(db);
+  if (evaluations.fresh || evaluations.backfill) log("evaluations_queued", evaluations);
   const staleRecreations = failStaleRecreations(db);
   if (staleRecreations) log("recreations_failed_stale", { count: staleRecreations });
   const now = new Date().toISOString();
   for (const market of marketsDueForPlaybook(db, now)) {
-    enqueueJob(db, { kind: "playbook", payload: { market }, idempotencyKey: `playbook:${market}:${marketWeekStart(market, now)}` });
+    enqueueJob(db, { kind: "playbook", payload: { market }, idempotencyKey: playbookJobKey(db, market, now) });
   }
   await pushPendingEvents();
   startAnalyses();
@@ -296,7 +305,7 @@ async function main(): Promise<void> {
       if (once) await Promise.allSettled([...inflightAnalyses]);
       if (once || stopping) break;
       // Analyses are refilled between cycles, so only other due work shortens the wait.
-      const due = db.prepare("SELECT 1 FROM jobs WHERE kind NOT IN ('analyze','assess','playbook') AND status IN ('queued','failed') AND run_at<=? AND attempts<max_attempts LIMIT 1")
+      const due = db.prepare("SELECT 1 FROM jobs WHERE kind NOT IN ('analyze','assess','evaluate','playbook') AND status IN ('queued','failed') AND run_at<=? AND attempts<max_attempts LIMIT 1")
         .get(new Date().toISOString());
       const until = Date.now() + (due ? 1_000 : Math.max(1_000, 30_000 - (Date.now() - started)));
       while (!stopping && Date.now() < until) {

@@ -52,11 +52,13 @@ export async function GET(request: Request) {
 
     const sql = `SELECT p.*,
       pred.rank_position, pred.rank_total, pred.band AS potential_band,
+      json_extract(ev.inputs_json, '$.creativeScore') AS creative_score, json_extract(ev.inputs_json, '$.registrationPotential') AS registration_potential,
       json_extract(f.tags_json, '$.hook_type.value') AS hook_type,
       json_extract(f.tags_json, '$.topic.value') AS topic
       FROM posts p
       LEFT JOIN post_features f ON f.post_id = p.id
-      LEFT JOIN predictions pred ON pred.id = (SELECT id FROM predictions WHERE post_id = p.id ORDER BY made_at DESC LIMIT 1)
+      LEFT JOIN predictions pred ON pred.id = (SELECT id FROM predictions WHERE post_id = p.id AND id NOT LIKE 'eval-%' ORDER BY made_at DESC LIMIT 1)
+      LEFT JOIN predictions ev ON ev.id = (SELECT id FROM predictions WHERE post_id = p.id AND id LIKE 'eval-%' ORDER BY made_at DESC LIMIT 1)
       ${filters.length ? `WHERE ${filters.join(" AND ")}` : ""}
       ORDER BY ${sort} LIMIT ?`;
     const result = await db.prepare(sql).bind(...values, limit).all();

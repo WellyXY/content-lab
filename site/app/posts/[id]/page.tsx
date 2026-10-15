@@ -7,7 +7,7 @@ import { Clock3, Film, Flame, MessageCircle, Play, RefreshCw, Share2, Sparkles, 
 import { Line, LineChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
-import { AssessmentCard, CheckpointsCard, ComputedFeaturesCard, ScriptTimeline } from "@/components/content-lab/analysis-panels";
+import { AssessmentCard, CheckpointsCard, EvaluationCard, ComputedFeaturesCard, ScriptTimeline } from "@/components/content-lab/analysis-panels";
 import { PostAdsCard } from "@/components/content-lab/ads-panels";
 import { RecreateButton, RecreatePanel } from "@/components/content-lab/recreate-panel";
 import { RelativeTime } from "@/components/content-lab/relative-time";
@@ -82,7 +82,8 @@ export default function PostDetailPage() {
   const published = formatPublishedTime(post.publishedAt, MARKETS.find((market) => market.code === post.market)?.timezone);
   const frames = data.keyframes ?? data.features?.keyframes ?? [];
   const videoId = post.url.match(/\/(?:video|photo)\/(\d+)/)?.[1];
-  const prediction = data.predictions[0];
+  const prediction = data.predictions.find((item) => !item.evaluation);
+  const evaluation = data.predictions.find((item) => item.evaluation)?.evaluation ?? null;
   const tagEntries = Object.entries(data.features?.tags ?? {});
 
   return (
@@ -152,7 +153,8 @@ export default function PostDetailPage() {
       <div className="mt-4"><CheckpointsCard checkpoints={post.checkpoints ?? []} /></div>
 
       <div className="mt-4"><PostAdsCard ads={post.ads} /></div>
-      <div className="mt-4"><AssessmentCard market={post.market} prediction={prediction} /></div>
+      {evaluation ? <div className="mt-4"><EvaluationCard evaluation={evaluation} /></div> : null}
+      <div className="mt-4"><AssessmentCard legacy={Boolean(evaluation)} market={post.market} prediction={prediction} /></div>
       {data.recreations?.length ? <div className="mt-4"><RecreatePanel recreations={data.recreations} /></div> : null}
 
       <section className="mt-4 grid items-start gap-4 xl:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)]">

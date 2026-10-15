@@ -6,6 +6,8 @@ export interface RecreateInputs {
   transcript: { language: string; segments: Array<{ start: number; end: number; text: string }> } | null;
   script: Array<Record<string, unknown>>;
   assessment: { band: string | null; suggestions: string[]; missing: string[]; antiPatterns: string[] } | null;
+  /** KB v2 motivation analysis and script changes; preferred over the v1 suggestions when present. */
+  evaluation?: { desire: string; whyPopup: string; firstPersonThought: string; gap: string; recommendations: string[]; barriers: string[] } | null;
   playbookSummary: string | null;
   memories: string;
 }
@@ -38,7 +40,19 @@ export function buildRecreateBrief(inputs: RecreateInputs): string {
     `- Source duration: ${inputs.durationS.toFixed(1)} s. The result must not be longer.`,
     `- Viral potential before recreation: ${inputs.assessment?.band ?? "not assessed"}.`,
     "",
-    "## What to fix (from the assessment)",
+    ...(inputs.evaluation ? [
+      "## Download motivation (knowledge base analysis)",
+      `- What the viewer wants: ${inputs.evaluation.desire}`,
+      `- Why PopUp: ${inputs.evaluation.whyPopup}`,
+      `- The viewer's likely thought: ${inputs.evaluation.firstPersonThought}`,
+      `- Gap between enjoying the video and wanting the app: ${inputs.evaluation.gap}`,
+      "",
+      "## What to fix (from the knowledge base evaluation; apply what an edit can achieve)",
+      ...inputs.evaluation.recommendations.map((item) => `- ${item}`),
+      ...(inputs.evaluation.barriers.length ? ["", "Barriers to remove:", ...inputs.evaluation.barriers.map((item) => `- ${item}`)] : []),
+      "",
+      "## Earlier suggestions (v1 assessment)",
+    ] : ["## What to fix (from the assessment)"]),
     ...(inputs.assessment?.suggestions.length ? inputs.assessment.suggestions.map((item) => `- ${item}`) : ["- No suggestions recorded; apply the playbook below."]),
     ...(inputs.assessment?.missing.length ? ["", "Missing patterns:", ...inputs.assessment.missing.map((item) => `- ${item}`)] : []),
     ...(inputs.assessment?.antiPatterns.length ? ["", "Anti-patterns to remove:", ...inputs.assessment.antiPatterns.map((item) => `- ${item}`)] : []),

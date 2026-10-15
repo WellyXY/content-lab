@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Lightbulb, ShieldAlert, Sparkles, Target } from "lucide-react";
+import { Brain, Lightbulb, ShieldAlert, Sparkles, Target } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { compactNumber, type Checkpoint, type ComputedFeatures, type Prediction, type ScriptSegment } from "@/lib/content-lab";
+import { compactNumber, type Checkpoint, type ComputedFeatures, type EvaluationScore, type KbEvaluation, type Prediction, type ScriptSegment } from "@/lib/content-lab";
 import { useLocale } from "@/lib/i18n";
 
 const POTENTIAL = {
@@ -21,7 +21,7 @@ const ROLE_LABELS: Record<ScriptSegment["role"], [string, string]> = {
 };
 
 /** Bind-time assessment against the market's viral-content playbook, laid out for a full-width row. */
-export function AssessmentCard({ prediction, market }: { prediction: Prediction | undefined; market: string }) {
+export function AssessmentCard({ prediction, market, legacy = false }: { prediction: Prediction | undefined; market: string; legacy?: boolean }) {
   const { t, pick } = useLocale();
   const [expanded, setExpanded] = useState(false);
   const assessment = prediction?.assessment;
@@ -39,6 +39,7 @@ export function AssessmentCard({ prediction, market }: { prediction: Prediction 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
             <CardTitle className="text-lg">{t("爆款评估", "Viral assessment")}</CardTitle>
+            {legacy ? <Badge className="border-white/10 bg-white/[0.03] text-muted-foreground" variant="outline">{t("旧版 · 只看播放", "Legacy · views only")}</Badge> : null}
             {potential ? <Badge className={`${potential.className} text-sm`} variant="outline">{t("爆款可能性", "Viral potential")} · {t(potential.label[0], potential.label[1])}</Badge> : null}
           </div>
           <CardDescription>{assessment?.playbook
@@ -164,4 +165,88 @@ export function CheckpointsCard({ checkpoints }: { checkpoints: Checkpoint[] }) 
       </table> : <p className="py-6 text-center text-sm text-muted-foreground">{t("下一次采集后生成。", "Generated after the next capture.")}</p>}
     </CardContent>
   </Card>;
+}
+
+const CONFIDENCE: Record<EvaluationScore["confidence"], [string, string]> = { low: ["信心低", "low confidence"], medium: ["信心中", "medium confidence"], high: ["信心高", "high confidence"] };
+const EVIDENCE_LABELS: Record<string, [string, string]> = {
+  OBSERVED_MEDIA: ["素材所见", "Seen in media"], HUMAN_INSIGHT: ["运营经验", "Ops insight"], AGENT_HYPOTHESIS: ["Agent 推测", "Agent hypothesis"], MISSING: ["缺少证据", "Missing"], ADS_DATA: ["投放数据", "Ads data"],
+};
+const VISIBILITY: Record<KbEvaluation["product_integration"]["visibility"], [string, string]> = { none: ["未出现", "Not shown"], brief: ["短暂出现", "Brief"], central: ["核心角色", "Central"] };
+
+/** Knowledge base v2 evaluation: two blind scores, why a viewer would or would not want PopUp, and script changes. */
+export function EvaluationCard({ evaluation }: { evaluation: KbEvaluation }) {
+  const { t, pick, lang } = useLocale();
+  const [showEvidence, setShowEvidence] = useState(false);
+  const pair = (item: { zh: string; en: string }) => (lang === "zh" ? item.zh : item.en || item.zh);
+  const postFor = new Map((evaluation.references ?? []).map((item) => [item.id, item.postId]));
+  const motivation = [
+    ["desire", t("观众想要什么", "What the viewer wants")], ["why_popup", t("为什么是 PopUp", "Why PopUp")],
+    ["first_person_thought", t("观众可能的心里话", "The viewer's likely thought")], ["plausibility", t("体验可信度", "Plausibility")],
+    ["timing", t("动机出现的时机", "When motivation appears")], ["entertainment_gap", t("好看 ≠ 想下载", "Enjoying ≠ wanting the app")],
+  ] as const;
+  return (
+    <Card className="border-primary/15 bg-card/80 shadow-none">
+      <CardHeader className="border-b border-white/8 pb-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <CardTitle className="text-lg">{t("知识库评估", "Knowledge base evaluation")}</CardTitle>
+            <ScoreBadge label={t("注册潜力", "Registration potential")} score={evaluation.registration_potential} primary />
+            <ScoreBadge label={t("创意分", "Creative score")} score={evaluation.creative_score} />
+          </div>
+          <CardDescription>{t(`知识库 ${evaluation.kbVersion} · 盲测：评分时不看这条帖子的播放和投放成效`, `Knowledge base ${evaluation.kbVersion} · blind: scored without this post's views or ads results`)}</CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-6 pt-5">
+        <p className="max-w-4xl text-sm leading-7 text-foreground/90">{pick(evaluation, "summary")}</p>
+        {evaluation.source_status !== "complete" ? <p className="rounded-md border border-amber-300/15 bg-amber-300/[0.05] p-3 text-xs leading-5 text-amber-100">{t("素材不完整：", "Incomplete material: ")}{pick(evaluation, "evidence_limitations")}</p> : null}
+
+        <div>
+          <p className="flex items-center gap-1.5 text-sm font-medium"><Brain className="size-4 text-primary" />{t("下载动机", "Download motivation")}</p>
+          <dl className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{motivation.map(([field, label]) => <div className="rounded-lg border border-white/8 bg-white/[0.025] p-3" key={field}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 text-sm leading-6">{pick(evaluation.motivation, field)}</dd></div>)}</dl>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-3">
+          <div className="rounded-lg border border-white/8 bg-white/[0.02] p-4"><p className="text-xs text-muted-foreground">{t("钩子", "Hook")}</p><p className="mt-1 text-sm leading-6">{pair(evaluation.hook)}</p><p className="mt-2 text-xs text-muted-foreground">{[...evaluation.hook.triggers, ...evaluation.hook.forms].join(" · ")}</p></div>
+          <div className="rounded-lg border border-white/8 bg-white/[0.02] p-4"><p className="text-xs text-muted-foreground">{t("反转", "Reverse")}</p>{evaluation.reverse.present
+            ? <p className="mt-1 text-sm leading-6">{pick(evaluation.reverse, "setup")} → {pick(evaluation.reverse, "reveal")}<span className="block text-xs text-muted-foreground">{evaluation.reverse.position}{evaluation.reverse.links_to_motivation ? t(" · 连到下载动机", " · tied to motivation") : ""}</span></p>
+            : <p className="mt-1 text-sm text-muted-foreground">{t("没有反转（不扣分）", "No reverse (not a penalty)")}</p>}</div>
+          <div className="rounded-lg border border-white/8 bg-white/[0.02] p-4"><p className="text-xs text-muted-foreground">{t("产品植入", "Product integration")} · {t(...VISIBILITY[evaluation.product_integration.visibility])}</p><p className="mt-1 text-sm leading-6">{pick(evaluation.product_integration, "narrative_function")}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{pick(evaluation.product_integration, "motivation_connection")}</p></div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <PatternList empty={t("无", "None")} icon={Target} items={evaluation.diagnosis.strengths.map((item) => ({ id: "+", text: pair(item) }))} title={t("优势", "Strengths")} tone="text-primary" />
+          <PatternList empty={t("无", "None")} icon={ShieldAlert} items={evaluation.diagnosis.barriers.map((item) => ({ id: "−", text: pair(item) }))} title={t("阻碍下载的地方", "Barriers to download")} tone="text-[#ff8a76]" />
+        </div>
+        {pick(evaluation.diagnosis, "exceptions") && !/^(无|none)$/i.test(pick(evaluation.diagnosis, "exceptions").trim()) ? <p className="text-xs leading-5 text-muted-foreground">{t("例外：", "Exceptions: ")}{pick(evaluation.diagnosis, "exceptions")}</p> : null}
+
+        {evaluation.recommendations.length ? <div>
+          <p className="flex items-center gap-1.5 text-sm font-medium"><Lightbulb className="size-4 text-cyan-200" />{t("脚本修改建议", "Script changes")}</p>
+          <ol className="mt-3 grid gap-3 lg:grid-cols-3">{evaluation.recommendations.map((item, index) => <li className="rounded-lg border border-white/8 bg-white/[0.025] p-3" key={index}>
+            <p className="text-sm leading-6">{pick(item, "change")}</p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">{t("机制：", "Mechanism: ")}{pick(item, "mechanism")}</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("要验证：", "To test: ")}{pick(item, "hypothesis")}</p>
+            {item.reference_case_ids.length ? <p className="mt-2 flex flex-wrap gap-1.5">{item.reference_case_ids.map((id) => postFor.get(id)
+              ? <Link className="rounded bg-primary/10 px-1.5 font-mono text-[11px] text-primary hover:underline" href={`/posts/${postFor.get(id)}`} key={id}>{t("参考帖子", "Reference post")}</Link>
+              : <span className="rounded bg-white/[0.05] px-1.5 font-mono text-[11px] text-muted-foreground" key={id} title={t("知识库案例", "Knowledge base case")}>{id}</span>)}</p> : null}
+          </li>)}</ol>
+        </div> : null}
+
+        <div>
+          <button className="text-xs text-primary hover:underline" onClick={() => setShowEvidence((value) => !value)} type="button">{showEvidence ? t("收起评分依据", "Hide scoring evidence") : t("查看评分依据", "Show scoring evidence")}</button>
+          {showEvidence ? <div className="mt-3 grid gap-4 lg:grid-cols-2">{([[t("注册潜力", "Registration potential"), evaluation.registration_potential], [t("创意分", "Creative score"), evaluation.creative_score]] as const).map(([label, block]) => <div className="rounded-lg border border-white/8 bg-white/[0.02] p-4" key={label}>
+            <p className="text-sm font-medium">{label}</p>
+            <ul className="mt-2 space-y-2">{block.evidence.map((item, index) => <li className="text-sm leading-6 text-muted-foreground" key={index}><span className="mr-2 rounded bg-white/[0.05] px-1.5 text-[11px]">{t(...(EVIDENCE_LABELS[item.label] ?? [item.label, item.label]))}</span>{pair(item)}</li>)}</ul>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">{t("保留意见：", "Caveat: ")}{pick(block, "caveat")}</p>
+          </div>)}</div> : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ScoreBadge({ label, score, primary = false }: { label: string; score: EvaluationScore; primary?: boolean }) {
+  const { t } = useLocale();
+  const value = score.score;
+  const tone = value === null ? "border-white/10 bg-white/[0.03] text-muted-foreground" : !primary ? "border-cyan-300/20 bg-cyan-300/8 text-cyan-200" : value >= 7 ? "border-primary/25 bg-primary/10 text-primary" : value >= 4 ? "border-amber-300/25 bg-amber-300/10 text-amber-200" : "border-[#ff715b]/25 bg-[#ff715b]/10 text-[#ff8a76]";
+  return <Badge className={`${tone} text-sm`} title={t(...CONFIDENCE[score.confidence])} variant="outline">{label} · {value === null ? t("证据不足", "Not enough evidence") : `${value}/10`}</Badge>;
 }
