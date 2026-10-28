@@ -12,6 +12,8 @@ export interface FeishuDocument {
   tiktokUrls: string[];
   /** Every line, untruncated: for program-side processing only, never for the model. */
   lines: string[];
+  /** Tabs Feishu was still preparing after every retry; their rows are missing, not empty. */
+  skippedTabs?: string[];
 }
 
 const DOC_HOSTS = /(^|\.)(feishu\.cn|feishu\.net|larksuite\.com|larkoffice\.com)$/i;
@@ -19,6 +21,7 @@ const MAX_TEXT = 40_000;
 const SHEET_CHUNK_ROWS = 2_000;
 const MAX_SHEET_ROWS = 50_000;
 const MAX_SHEET_COLUMNS = 200;
+const MAX_TABS = 40;
 /** 1 → A, 27 → AA. */
 const columnLetter = (index: number): string => { let name = ""; for (let n = index; n > 0; n = Math.floor((n - 1) / 26)) name = String.fromCharCode(65 + ((n - 1) % 26)) + name; return name; };
 const MAX_ROWS = 2_000;
@@ -83,6 +86,33 @@ async function paged(get: FeishuGet, path: string, params: Record<string, string
   return items.slice(0, limit);
 }
 
+/** Feishu answers 90235 "Data not ready" while it prepares a large tab: wait and retry, then skip the tab instead of failing the document. */
+const NOT_READY_WAITS_MS = [5_000, 10_000, 20_000, 45_000];
+async function readRange(get: FeishuGet, path: string, waits = NOT_READY_WAITS_MS): Promise<Record<string, unknown> | null> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await get(path, { valueRenderOption: "UnformattedValue" });
+    } catch (error) {
+      if (!/\b90235\b/.test(error instanceof Error ? error.message : String(error))) throw error;
+      // Computing formula values on a big tab can take a while (computed reads of 2,000 rows take about 20 seconds).
+      if (attempt >= waits.length) return null;
+      await new Promise((resolve) => setTimeout(resolve, waits[attempt]));
+    }
+  }
+}
+
+type SheetTab = { sheet_id: string; title: string; grid_properties?: { row_count?: number | undefined; column_count?: number | undefined } };
+
+/** The spreadsheet's tabs. The v3 listing fails with a server error on some spreadsheets (1315201) that the v2 metainfo still describes. */
+async function listSheets(get: FeishuGet, token: string): Promise<SheetTab[]> {
+  try {
+    return ((await get(`/open-apis/sheets/v3/spreadsheets/${token}/sheets/query`)).sheets as SheetTab[] | undefined) ?? [];
+  } catch (error) {
+    const meta = (await get(`/open-apis/sheets/v2/spreadsheets/${token}/metainfo`).catch(() => { throw error; })).sheets as Array<{ sheetId: string; title: string; rowCount?: number; columnCount?: number }> | undefined;
+    return (meta ?? []).map((sheet) => ({ sheet_id: sheet.sheetId, title: sheet.title, grid_properties: { row_count: sheet.rowCount, column_count: sheet.columnCount } }));
+  }
+}
+
 export async function readFeishuDocument(get: FeishuGet, input: string, options: { allTabs?: boolean } = {}): Promise<FeishuDocument> {
   let ref = parseFeishuDocUrl(input);
   // A link opened on one tab still lets the reader see every tab when asked.
@@ -96,6 +126,7 @@ export async function readFeishuDocument(get: FeishuGet, input: string, options:
     title = node.title ?? null;
   }
   const lines: string[] = [];
+  const skippedTabs: string[] = [];
   if (ref.kind === "docx") {
     const blocks = await paged(get, `/open-apis/docx/v1/documents/${ref.token}/blocks`, { page_size: 500 }, 5_000);
     for (const block of blocks) {
@@ -103,9 +134,9 @@ export async function readFeishuDocument(get: FeishuGet, input: string, options:
       if (line) lines.push(line);
     }
   } else if (ref.kind === "sheet") {
-    const sheets = ((await get(`/open-apis/sheets/v3/spreadsheets/${ref.token}/sheets/query`)).sheets as Array<{ sheet_id: string; title: string; grid_properties?: { row_count?: number; column_count?: number } }> | undefined) ?? [];
+    const sheets = await listSheets(get, ref.token);
     const chosen = ref.sub ? sheets.filter((sheet) => sheet.sheet_id === ref.sub) : sheets;
-    for (const sheet of chosen.slice(0, 20)) {
+    for (const sheet of chosen.slice(0, MAX_TABS)) {
       if (chosen.length > 1) lines.push(`## ${sheet.title}`);
       // The whole grid, in batches: new rows usually go at the bottom, past any fixed range.
       const rowCount = Math.min(sheet.grid_properties?.row_count ?? SHEET_CHUNK_ROWS, MAX_SHEET_ROWS);
@@ -113,7 +144,8 @@ export async function readFeishuDocument(get: FeishuGet, input: string, options:
       for (let start = 1; start <= rowCount; start += SHEET_CHUNK_ROWS) {
         const end = Math.min(start + SHEET_CHUNK_ROWS - 1, rowCount);
         // Computed values: formula cells (dates built with DATE(), IMPORTRANGE) would otherwise come back as formula text.
-        const range = (await get(`/open-apis/sheets/v2/spreadsheets/${ref.token}/values/${encodeURIComponent(`${sheet.sheet_id}!A${start}:${lastColumn}${end}`)}`, { valueRenderOption: "UnformattedValue" })).valueRange as { values?: unknown[][] } | undefined;
+        const range = (await readRange(get, `/open-apis/sheets/v2/spreadsheets/${ref.token}/values/${encodeURIComponent(`${sheet.sheet_id}!A${start}:${lastColumn}${end}`)}`))?.valueRange as { values?: unknown[][] } | undefined;
+        if (!range) { skippedTabs.push(sheet.title); break; }
         for (const row of range?.values ?? []) {
           const cells = row.map((cell) => flatten(cell).replace(/\s+/g, " ").trim());
           if (cells.some(Boolean)) lines.push(cells.join("\t").replace(/\t+$/, ""));
@@ -133,12 +165,14 @@ export async function readFeishuDocument(get: FeishuGet, input: string, options:
   }
   const full = lines.join("\n");
   const tiktokUrls = [...new Set(full.match(TIKTOK_URL) ?? [])];
-  return { kind: ref.kind as FeishuDocument["kind"], title, text: full.slice(0, MAX_TEXT), truncated: full.length > MAX_TEXT, tiktokUrls, lines };
+  return { kind: ref.kind as FeishuDocument["kind"], title, text: full.slice(0, MAX_TEXT), truncated: full.length > MAX_TEXT, tiktokUrls, lines, ...(skippedTabs.length ? { skippedTabs } : {}) };
 }
 
 /** A tenant-token client for the bot app; the document must be shared with the app or readable in the organization. */
 export function createFeishuDocReader(appId: string, appSecret: string): (url: string, options?: { allTabs?: boolean }) => Promise<FeishuDocument> {
-  const client = new lark.Client({ appId, appSecret, loggerLevel: lark.LoggerLevel.warn });
+  // Errors are thrown with Feishu's code and message; the SDK's own error log would print the request, bearer token included.
+  const silent = (): void => undefined;
+  const client = new lark.Client({ appId, appSecret, logger: { error: silent, warn: silent, info: silent, debug: silent, trace: silent } });
   const get: FeishuGet = async (path, params) => {
     let response: { code?: number; msg?: string; data?: Record<string, unknown> };
     try {

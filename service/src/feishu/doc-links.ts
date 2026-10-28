@@ -43,10 +43,33 @@ export function sheetTabs(doc: FeishuDocument): Array<{ title: string; rows: num
 }
 
 /** A cell as a date: spreadsheet serial numbers, ISO-like dates, day/month/year, or Unix timestamps. */
-export function parseDate(value: string | undefined): number | null {
-  // "Thursday 20260917", "Friday, 2026-09-18": drop a leading weekday; "2026 - 09 - 18": drop spaces around separators.
-  const text = (value ?? "").trim().replace(/^[A-Za-z]+,?\s+(?=\d)/, "").replace(/\s*([-/.])\s*/g, "$1");
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/** A date written without a year is the most recent such day: this year, or last year if that would be over two months ahead. */
+function withoutYear(month: number, day: number, now: number): number | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const year = new Date(now).getUTCFullYear();
+  const time = Date.UTC(year, month - 1, day);
+  return time > now + 61 * DAY ? Date.UTC(year - 1, month - 1, day) : time;
+}
+
+export function parseDate(value: string | undefined, now = Date.now()): number | null {
+  // "Thursday 20260917", "Friday, 2026-09-18", "Tue/ 1020": drop a leading weekday; "2026 - 09 - 18": drop spaces around separators.
+  const raw = (value ?? "").trim();
+  const weekday = /^(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?[,/]?\s*(?=\d)/i.exec(raw);
+  const text = raw.slice(weekday?.[0].length ?? 0).replace(/\s*([-/.])\s*/g, "$1");
   if (!text) return null;
+  // "Tue/ 1020": a weekday then month and day.
+  const monthDay = weekday ? text.match(/^(\d{2})(\d{2})$/) : null;
+  if (monthDay) return withoutYear(Number(monthDay[1]), Number(monthDay[2]), now);
+  // "6 September 2026", "22 October", "Oct 22, 2026".
+  const named = text.match(/^(\d{1,2})\s+([A-Za-z]{3,})\.?,?(?:\s+(\d{4}))?$/) ?? text.match(/^([A-Za-z]{3,})\.?\s+(\d{1,2}),?(?:\s+(\d{4}))?$/);
+  if (named) {
+    const [day, name] = /^\d/.test(named[1]!) ? [Number(named[1]), named[2]!] : [Number(named[2]), named[1]!];
+    const month = MONTHS.indexOf(name.slice(0, 3).toLowerCase()) + 1;
+    if (!month) return null;
+    return named[3] ? Date.UTC(Number(named[3]), month - 1, day) : withoutYear(month, day, now);
+  }
   const compact = text.match(/^(20\d{2})(\d{2})(\d{2})$/);
   if (compact) return Date.UTC(Number(compact[1]), Number(compact[2]) - 1, Number(compact[3]));
   if (/^\d+(\.\d+)?$/.test(text)) {
@@ -60,6 +83,9 @@ export function parseDate(value: string | undefined): number | null {
   if (match) return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
   match = text.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
   if (match) return Date.UTC(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+  // "22.6.26": day, month, two-digit year.
+  match = text.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2})$/);
+  if (match) return Date.UTC(2000 + Number(match[3]), Number(match[2]) - 1, Number(match[1]));
   return null;
 }
 
@@ -149,4 +175,13 @@ export function summarizeDocument(doc: FeishuDocument) {
     sampleLinks: links.slice(0, 5).map((link) => link.url),
     preview: doc.lines.slice(0, 20).map((line) => line.slice(0, 200)).join("\n"),
   };
+}
+
+/** The TikTok links in query result rows; a `market` column (a code or a country name) sets each row's market. */
+export function linksFromRows(rows: Array<Record<string, unknown>>): Array<{ url: string; market: string | null }> {
+  return rows.flatMap((row) => {
+    const rowMarket = typeof row.market === "string" ? marketFromCell(row.market) : null;
+    const text = Object.values(row).filter((value): value is string => typeof value === "string").join(" ");
+    return [...new Set(text.match(TIKTOK_URL) ?? [])].map((link) => ({ url: link, market: rowMarket }));
+  });
 }

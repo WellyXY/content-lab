@@ -10,6 +10,8 @@ import { loadConfig } from "./config.js";
 import { openDatabase, type ContentLabDatabase } from "./db/database.js";
 import { normalizeTikTokPostUrl } from "./domain/tiktok-url.js";
 import { createContentLabFeishuBot } from "./feishu/bot.js";
+import { createFeishuDocReader } from "./feishu/docs.js";
+import { loadSheetSyncs, runSheetSyncs, sheetSyncDue } from "./feishu/sheet-sync.js";
 import { createFeishuWebhookTransport, deliverAlertOutbox, type FeishuAlertTransport } from "./feishu.js";
 import { completeJob, deferJob, enqueueJob, failJob, leaseJobs, type Job } from "./jobs/queue.js";
 import { TikTokProvider } from "./providers/tiktok.js";
@@ -94,6 +96,17 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
       const since = new Date(Date.now() - 86_400_000).toISOString();
       const extra = (database.prepare("SELECT COUNT(*) AS count FROM jobs WHERE kind='ads_sync' AND idempotency_key LIKE 'ads_sync:continue:%' AND created_at >= ?").get(since) as { count: number }).count;
       if (extra < 4) enqueueJob(database, { kind: "ads_sync", payload: {}, idempotencyKey: `ads_sync:continue:${Date.now()}`, runAt: new Date(Date.now() + 5 * 60_000).toISOString(), maxAttempts: 2 });
+    }
+    return;
+  }
+  if (job.kind === "sheet_sync") {
+    if (!config.feishuAppId || !config.feishuAppSecret) throw new Error("Sheet sync needs the Feishu app credentials");
+    const syncs = loadSheetSyncs(config.sheetSyncPath);
+    const results = await runSheetSyncs(database, config, syncs, createFeishuDocReader(config.feishuAppId, config.feishuAppSecret));
+    log("sheets_synced", { sheets: results });
+    const failed = results.filter((item) => item.error);
+    if (failed.length) {
+      await feishuBot?.notifyOwner(`表格每日同步有 ${failed.length} 个失败：${failed.map((item) => `${item.name}（${(item.error ?? "").slice(0, 120)}）`).join("；")}。其他表格照常同步，明天会再试。`).catch(() => undefined);
     }
     return;
   }
@@ -260,6 +273,8 @@ export async function runWorkerCycle(): Promise<void> {
   log("scheduler_cycle", { ...runSchedulerCycle(db) });
   const pending = drainPendingBinds(db, config);
   if (pending.queued) log("pending_binds_queued", pending);
+  const sheetKey = sheetSyncDue(new Date());
+  if (sheetKey) enqueueJob(db, { kind: "sheet_sync", payload: {}, idempotencyKey: sheetKey, maxAttempts: 2 });
   const adsKey = adsSyncDue(new Date());
   if (adsKey) enqueueJob(db, { kind: "ads_sync", payload: {}, idempotencyKey: adsKey, maxAttempts: 2 });
   const evaluations = scheduleEvaluations(db);

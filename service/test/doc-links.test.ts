@@ -87,4 +87,20 @@ describe("dates as people and sheets write them", () => {
     expect(iso("2026 - 09 - 18")).toBe("2026-09-18");
     expect(iso("DATE(2026,7,2)+INT((ROW()-ROW($I$4))/2)")).toBeNull();
   });
+  it("reads month names, two-digit years and dates written without a year", () => {
+    const now = Date.UTC(2026, 9, 27);
+    const at = (value: string) => { const time = parseDate(value, now); return time === null ? null : new Date(time).toISOString().slice(0, 10); };
+    expect(at("6 September 2026")).toBe("2026-09-06");
+    expect(at("22 October")).toBe("2026-10-22");
+    expect(at("Oct 22, 2026")).toBe("2026-10-22");
+    expect(at("22.6.26")).toBe("2026-06-22");
+    expect(at("22.10.26")).toBe("2026-10-22");
+    expect(at("Tue/ 1020")).toBe("2026-10-20");
+    expect(at("Thurs/ 0514")).toBe("2026-05-14");
+    // A day more than two months ahead belongs to last year.
+    expect(at("Thu/ 1231")).toBe("2025-12-31");
+    expect(at("Mon 20260504")).toBe("2026-05-04");
+    expect(at("1020")).toBeNull();
+    expect(at("Facebook")).toBeNull();
+  });
 });

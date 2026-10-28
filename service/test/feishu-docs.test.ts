@@ -100,3 +100,17 @@ describe("long sheets", () => {
     expect(doc.lines.at(-1)).toContain("46300");
   });
 });
+
+describe("spreadsheets whose tab listing fails", () => {
+  it("falls back to the v2 metainfo and reads more than 20 tabs", async () => {
+    const tabs = Array.from({ length: 21 }, (_, index) => ({ sheetId: `s${index}`, title: `Tab ${index}`, rowCount: 2, columnCount: 2 }));
+    const get: FeishuGet = async (path) => {
+      if (path.endsWith("/sheets/query")) throw new Error("飞书接口错误 1315201: Server Error");
+      if (path.endsWith("/metainfo")) return { sheets: tabs };
+      return { valueRange: { values: [["Link"], [`https://www.tiktok.com/@k/video/7450000000000000${path.match(/s(\d+)!/)![1]!.padStart(3, "0")}`]] } };
+    };
+    const doc = await readFeishuDocument(get, "https://acme.feishu.cn/sheets/Sht0000000001");
+    expect(doc.lines.filter((line) => line.startsWith("## "))).toHaveLength(21);
+    expect(doc.tiktokUrls).toHaveLength(21);
+  });
+});

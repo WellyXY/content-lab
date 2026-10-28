@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { ServiceConfig } from "./config.js";
 import type { ContentLabDatabase } from "./db/database.js";
-import { extractVideoId } from "./domain/tiktok-url.js";
+import { extractVideoId, normalizeTikTokPostUrl } from "./domain/tiktok-url.js";
 import { enqueueJob } from "./jobs/queue.js";
 import { putSyncEvent } from "./sync/outbox.js";
 
@@ -140,4 +140,54 @@ export function drainPendingBinds(db: ContentLabDatabase, limits: BindLimits, no
     }
   }
   return { queued, remaining: (db.prepare("SELECT COUNT(*) AS n FROM pending_binds").get() as { n: number }).n };
+}
+
+export interface LinkPlan {
+  /** New and tracked links per market, normalized and without duplicates. */
+  groups: Map<string, string[]>;
+  byMarket: Record<string, { new: number; alreadyTracked: number }>;
+  invalid: number;
+  noMarket: number;
+  totalNew: number;
+}
+
+/** Group document links by market (the link's own, else `market`), dropping profile and invalid links. */
+export function planLinks(db: ContentLabDatabase, links: Array<{ url: string; market: string | null }>, market?: string | null): LinkPlan {
+  const groups = new Map<string, string[]>();
+  let invalid = 0;
+  let noMarket = 0;
+  for (const link of links) {
+    let normalized: string;
+    try { normalized = normalizeTikTokPostUrl(link.url); } catch { invalid += 1; continue; }
+    const target = link.market ?? market ?? null;
+    if (!target) { noMarket += 1; continue; }
+    groups.set(target, [...new Set([...(groups.get(target) ?? []), normalized])]);
+  }
+  const byMarket: Record<string, { new: number; alreadyTracked: number }> = {};
+  for (const [code, urls] of groups) {
+    const already = urls.filter((url) => boundRef(db, url) !== null).length;
+    byMarket[code] = { new: urls.length - already, alreadyTracked: already };
+  }
+  return { groups, byMarket, invalid, noMarket, totalNew: Object.values(byMarket).reduce((sum, item) => sum + item.new, 0) };
+}
+
+/** Bind a plan's new links up to today's quota, 50 at a time; the rest wait in pending_binds. Stops only at the active-post cap. */
+export function bindPlan(db: ContentLabDatabase, limits: BindLimits, plan: LinkPlan, boundBy: string, now = new Date()): { queued: number; scheduled: number; stoppedBy: string | null } {
+  let queued = 0;
+  let stoppedBy: string | null = null;
+  const later: Array<{ url: string; market: string }> = [];
+  for (const [market, all] of plan.groups) {
+    const urls = all.filter((url) => boundRef(db, url) === null);
+    let index = 0;
+    while (index < urls.length && !stoppedBy) {
+      const room = Math.min(50, remainingDailyQuota(db, limits, now));
+      if (room === 0) break;
+      const result = bindPosts(db, limits, { urls: urls.slice(index, index + room), market, projectTag: null, boundBy }, now);
+      if (!result.ok) { if (result.error !== "daily_quota_exceeded") stoppedBy = result.error; break; }
+      queued += result.jobs.length;
+      index += room;
+    }
+    if (!stoppedBy) later.push(...urls.slice(index).map((url) => ({ url, market })));
+  }
+  return { queued, scheduled: later.length ? deferBinds(db, later, boundBy, now) : 0, stoppedBy };
 }

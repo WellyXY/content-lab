@@ -29,6 +29,8 @@ export interface ServiceConfig {
   analyzerConcurrency: number;
   whisperModel: string | null;
   brandGlossaryPath: string;
+  /** Local list of Feishu sheets whose new posts are bound every day (see feishu/sheet-sync.ts). */
+  sheetSyncPath: string;
   /** Only a Site release that understands playbook events may receive them; older Sites reject the whole batch. */
   sitePlaybookSync: boolean;
   /**
@@ -97,6 +99,7 @@ export function loadConfig(): ServiceConfig {
     siteDeleteSync: optional("SITE_DELETE_SYNC") === "1",
     siteKbV2: optional("SITE_KB_V2") === "1",
     adsModel: optional("ADS_MODEL") ?? "claude-haiku-5-5",
+    sheetSyncPath: resolve(process.env.CONTENT_LAB_SHEET_SYNCS || resolve(repoDir, "var/sheet-syncs.json")),
     brandGlossaryPath: resolve(process.env.CONTENT_LAB_BRAND_GLOSSARY || resolve(repoDir, "docs/brand-glossary.json")),
     codexModel: optional("CODEX_MODEL"),
     codexConcurrency: integer("CODEX_CONCURRENCY", 1, 1),

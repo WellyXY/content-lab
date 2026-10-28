@@ -4,12 +4,11 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
 import { latestPlaybook, renderPlaybookMarkdown } from "../analyzer/playbook.js";
-import { bindPosts, boundRef, deferBinds, pendingBindCounts, remainingDailyQuota, type BindLimits } from "../bind.js";
+import { bindPlan, bindPosts, boundRef, deferBinds, pendingBindCounts, planLinks, remainingDailyQuota, type BindLimits } from "../bind.js";
 import type { ContentLabDatabase } from "../db/database.js";
-import { extractVideoId, normalizeTikTokPostUrl } from "../domain/tiktok-url.js";
-import { marketFromCell, selectDocLinks, summarizeDocument } from "../feishu/doc-links.js";
+import { normalizeTikTokPostUrl } from "../domain/tiktok-url.js";
+import { linksFromRows, selectDocLinks, summarizeDocument } from "../feishu/doc-links.js";
 import { describeDocTables, loadDocTables, queryAllDocRows, queryDocTables } from "../feishu/doc-sql.js";
-import { TIKTOK_URL } from "../feishu/docs.js";
 import type { FeishuDocument } from "../feishu/docs.js";
 import { enqueueJob } from "../jobs/queue.js";
 import { addMemory, archiveMemory, listMemories } from "./memory.js";
@@ -124,25 +123,10 @@ export function createAgentTools(context: AgentToolContext) {
 
   /** The plan for a set of document links (per market: new, already tracked; invalid; no market), or the binding itself when confirmed. */
   const planAndBind = (links: Array<{ url: string; market: string | null }>, market: string | undefined, confirm: boolean, title: string | null, extra: Record<string, unknown>): Text => {
-    const groups = new Map<string, string[]>();
-    let invalid = 0;
-    let noMarket = 0;
-    for (const link of links) {
-      let normalized: string;
-      try { normalized = normalizeTikTokPostUrl(link.url); } catch { invalid += 1; continue; }
-      const target = link.market ?? market ?? null;
-      if (!target) { noMarket += 1; continue; }
-      groups.set(target, [...new Set([...(groups.get(target) ?? []), normalized])]);
-    }
-    const tracked = (candidate: string): boolean => boundRef(db, candidate) !== null;
-    const byMarket: Record<string, { new: number; alreadyTracked: number }> = {};
-    for (const [code, urls] of groups) {
-      const already = urls.filter(tracked).length;
-      byMarket[code] = { new: urls.length - already, alreadyTracked: already };
-    }
-    const totalNew = Object.values(byMarket).reduce((sum, item) => sum + item.new, 0);
+    const plan = planLinks(db, links, market);
+    const { byMarket, invalid, noMarket, totalNew } = plan;
     if (!confirm) return ok({ bound: false, title, byMarket, invalid, noMarket, totalNew, ...extra, note: "这是计划，还没有绑定。确认后用 confirm=true 再调用一次。invalid 是账号主页或不是帖子的链接；noMarket 是没有国家或市场的行，可以用 market 参数指定。" });
-    const { queued, scheduled, stoppedBy } = bindNowOrLater([...groups].map(([code, urls]) => ({ market: code, urls: urls.filter((candidate) => !tracked(candidate)) })));
+    const { queued, scheduled, stoppedBy } = bindPlan(db, context.bindLimits, plan, `agent:${context.channel}`);
     return ok({
       bound: true, title, queued, scheduled, notQueued: totalNew - queued - scheduled, stoppedBy, byMarket, invalid, noMarket,
       note: [
@@ -151,26 +135,6 @@ export function createAgentTools(context: AgentToolContext) {
         stoppedBy ? "正在追踪的帖子数达到上限，剩下的没有绑定。" : "",
       ].filter(Boolean).join(" "),
     });
-  };
-
-  /** Bind what fits today's quota and keep the rest waiting for later days; stops only at the active-post cap. */
-  const bindNowOrLater = (groups: Array<{ market: string; urls: string[] }>): { queued: number; scheduled: number; stoppedBy: string | null } => {
-    let queued = 0;
-    let stoppedBy: string | null = null;
-    const later: Array<{ url: string; market: string }> = [];
-    for (const group of groups) {
-      let index = 0;
-      while (index < group.urls.length && !stoppedBy) {
-        const room = Math.min(50, remainingDailyQuota(db, context.bindLimits));
-        if (room === 0) break;
-        const result = bindPosts(db, context.bindLimits, { urls: group.urls.slice(index, index + room), market: group.market, projectTag: null, boundBy: `agent:${context.channel}` });
-        if (!result.ok) { if (result.error !== "daily_quota_exceeded") stoppedBy = result.error; break; }
-        queued += result.jobs.length;
-        index += room;
-      }
-      if (!stoppedBy) later.push(...group.urls.slice(index).map((url) => ({ url, market: group.market })));
-    }
-    return { queued, scheduled: later.length ? deferBinds(db, later, `agent:${context.channel}`) : 0, stoppedBy };
   };
 
   /** A document's tabs as SQL tables; the document itself is cached for ten minutes so a plan and its confirmation read the same data. */
@@ -391,12 +355,7 @@ tags_json: {dimension: {value, confidence}}; use json_extract.`, { sql: z.string
       } finally {
         loaded.db.close();
       }
-      const links = rows.flatMap((row) => {
-        const rowMarket = typeof row.market === "string" ? marketFromCell(row.market) : null;
-        const text = Object.values(row).filter((value): value is string => typeof value === "string").join(" ");
-        return [...new Set(text.match(TIKTOK_URL) ?? [])].map((link) => ({ url: link, market: rowMarket }));
-      });
-      return planAndBind(links, market, confirm, loaded.title, { rows: rows.length });
+      return planAndBind(linksFromRows(rows), market, confirm, loaded.title, { rows: rows.length });
     }),
 
     tool("bind_status", "Progress of recent binds: ingest jobs from the last 24 hours (queued, running, done, failed), links waiting for tomorrow's quota per market, quota left today and when it resets, and how many new posts still await analysis.", {}, async () => {
