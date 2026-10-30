@@ -28,3 +28,10 @@ export async function writeJpeg(path: string, image: Rgb): Promise<void> {
     child.stdin?.end(image.data);
   });
 }
+
+/** Decode an image with its alpha channel (four bytes per pixel), at its own size. */
+export async function readRgba(path: string, size: { width: number; height: number }): Promise<{ width: number; height: number; data: Buffer }> {
+  const { stdout } = await execFileAsync("ffmpeg", ["-v", "error", "-i", path, "-vf", `scale=${size.width}:${size.height}`, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"], { encoding: "buffer", maxBuffer: 256 * 1024 * 1024 });
+  if (stdout.length !== size.width * size.height * 4) throw new Error(`Decoded ${path} to ${stdout.length} bytes, expected ${size.width}x${size.height}x4`);
+  return { ...size, data: stdout };
+}

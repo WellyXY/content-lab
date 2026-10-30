@@ -24,16 +24,14 @@ export function copyPrompt(input: { market: string | null; scene: string; replac
 
 const DISABLED = ["apps", "plugins", "hooks", "multi_agent", "computer_use", "browser_use"];
 
-/** Run one Codex session that generates base.png in `dir` from source.jpg. Returns the image path, or null when Codex produced none. */
-export async function generateWithCodex(dir: string, sourcePath: string, prompt: string, options: { model?: string | null; timeoutMs?: number } = {}): Promise<string | null> {
-  mkdirSync(dir, { recursive: true });
-  const source = join(dir, "source.jpg");
-  if (!existsSync(source)) copyFileSync(sourcePath, source);
+/** Run one Codex session in `dir` with the attached images; its log is kept in the folder. */
+export async function runCodexSession(dir: string, images: string[], prompt: string, options: { model?: string | null; timeoutMs?: number } = {}): Promise<void> {
   const args = ["exec", "--sandbox", "workspace-write", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", "--color", "never", "-C", dir, "-c", 'web_search="disabled"'];
   for (const feature of DISABLED) args.push("--disable", feature);
   if (options.model) args.push("--model", options.model);
+  for (const image of images) args.push("--image", image);
   // --image is variadic: end option parsing so the prompt is not read as a file.
-  args.push("--image", source, "--", prompt);
+  args.push("--", prompt);
   const log = await new Promise<string>((resolve) => {
     // stdin must be closed, or `codex exec` waits for more input forever.
     const child = execFile("codex", args, { timeout: options.timeoutMs ?? 12 * 60_000, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, NO_COLOR: "1" } },
@@ -42,6 +40,14 @@ export async function generateWithCodex(dir: string, sourcePath: string, prompt:
   });
   writeFileSync(join(dir, "codex.log"), log.slice(-200_000), { mode: 0o600 });
   if (/not logged in|login required|401 Unauthorized/i.test(log)) throw new Error("Codex is not signed in");
+}
+
+/** Run one Codex session that generates base.png in `dir` from source.jpg. Returns the image path, or null when Codex produced none. */
+export async function generateWithCodex(dir: string, sourcePath: string, prompt: string, options: { model?: string | null; timeoutMs?: number } = {}): Promise<string | null> {
+  mkdirSync(dir, { recursive: true });
+  const source = join(dir, "source.jpg");
+  if (!existsSync(source)) copyFileSync(sourcePath, source);
+  await runCodexSession(dir, [source], prompt, options);
   const output = join(dir, "base.png");
   return existsSync(output) ? output : null;
 }

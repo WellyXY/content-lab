@@ -247,6 +247,8 @@ export type Recreation = {
     summary_zh: string; summary_en: string; changes: Array<{ zh: string; en: string; suggestion: string | null }>; skipped?: Array<{ zh: string; en: string; suggestion: string | null }>;
     /** Carousel copies: per image the original and the generated versions; screenshots are kept. */
     images?: Array<{ index: number; kept: boolean; original: string; variants: string[]; failed: number }>;
+    /** Carousel copies: captions and chat messages reworded with the same story. */
+    rewrites?: Array<{ image: number; original: string; rewritten: string }>;
   } | null;
   videoUrl: string | null;
   coverUrl: string | null;

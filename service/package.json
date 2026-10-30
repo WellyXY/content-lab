@@ -32,6 +32,7 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "hono": "^4.7.2",
     "hyperframes": "0.8.143",
+    "puppeteer-core": "25.13.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

@@ -113,7 +113,7 @@ export function RecreatePanel({ recreations: all, mode = "recreate" }: { recreat
       <CardHeader>
         <CardTitle>{photo ? t("一键复制版本", "Carousel copies") : t("Agent 重制版本", "Agent recreations")}</CardTitle>
         <CardDescription>{photo
-          ? t("每张照片换成当地创作者、新穿着和新场景，保持构图、情绪和故事；文字和 App 界面从原图原样保留；纯截图不变。每条帖子最多 2 次。", "Each photo reshot with a local creator, new outfit and place, keeping framing, mood and story; text and app UI copied from the original; screenshots unchanged. Up to 2 per post.")
+          ? t("每张照片换成当地创作者、新穿着和新场景，保持构图、情绪和故事；文案和聊天换种说法、剧情不变，App 自身的界面不改。每条帖子最多 2 次。", "Each photo reshot with a local creator, new outfit and place, keeping framing, mood and story; captions and chats reworded with the same story, the app's own UI unchanged. Up to 2 per post.")
           : t("按修改建议重新剪辑并加入动态图形；每条帖子最多 2 次。", "Re-edited with motion graphics from the suggestions; up to 2 per post.")}</CardDescription>
       </CardHeader>
       <CardContent className={photo ? "grid gap-8" : "grid gap-8 md:grid-cols-2"}>
@@ -131,6 +131,12 @@ export function RecreatePanel({ recreations: all, mode = "recreate" }: { recreat
               </div>
             ) : null}
             {item.notes?.images ? <CarouselCopy images={item.notes.images} /> : null}
+            {item.notes?.rewrites?.length ? (
+              <details className="rounded-md border border-white/8 bg-white/[0.02] p-3 text-sm">
+                <summary className="cursor-pointer text-muted-foreground">{t(`文字改写对照（${item.notes.rewrites.length} 处）`, `Reworded text (${item.notes.rewrites.length})`)}</summary>
+                <ul className="mt-2 space-y-1.5">{item.notes.rewrites.map((rewrite, index) => <li className="grid gap-2 text-xs sm:grid-cols-[40px_1fr_1fr]" key={index}><span className="text-muted-foreground">{t(`第 ${rewrite.image} 张`, `#${rewrite.image}`)}</span><span className="whitespace-pre-line text-muted-foreground line-through decoration-white/20">{rewrite.original}</span><span className="whitespace-pre-line">{rewrite.rewritten}</span></li>)}</ul>
+              </details>
+            ) : null}
             {item.notes ? (
               <div className="space-y-2 text-sm">
                 <p>{lang === "en" ? item.notes.summary_en : item.notes.summary_zh}</p>

@@ -17,7 +17,7 @@ export function rowToRecreation(row: Record<string, unknown>): Recreation {
   if (typeof row.notes_json === "string") {
     try {
       const parsed = JSON.parse(row.notes_json) as Recreation["notes"];
-      if (parsed && typeof parsed.summary_zh === "string" && Array.isArray(parsed.changes)) notes = { ...parsed, ...(Array.isArray(parsed.images) ? { images: parsed.images } : {}) };
+      if (parsed && typeof parsed.summary_zh === "string" && Array.isArray(parsed.changes)) notes = { ...parsed, ...(Array.isArray(parsed.images) ? { images: parsed.images } : {}), ...(Array.isArray(parsed.rewrites) ? { rewrites: parsed.rewrites } : {}) };
     } catch { /* unreadable notes are shown as none */ }
   }
   return {

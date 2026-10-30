@@ -76,3 +76,15 @@ export function compositeOverlays(base: Rgb, source: Rgb, mask: Uint8Array): Rgb
   }
   return { width: base.width, height: base.height, data };
 }
+
+/** Lay a transparent layer (RGBA) over a photo. */
+export function blendLayer(base: Rgb, layer: { width: number; height: number; data: Buffer }): Rgb {
+  if (base.width !== layer.width || base.height !== layer.height) throw new Error("The layer must have the photo's size");
+  const data = Buffer.from(base.data);
+  for (let p = 0; p < base.width * base.height; p += 1) {
+    const alpha = layer.data[p * 4 + 3]! / 255;
+    if (alpha === 0) continue;
+    for (let c = 0; c < 3; c += 1) data[p * 3 + c] = Math.round(layer.data[p * 4 + c]! * alpha + data[p * 3 + c]! * (1 - alpha));
+  }
+  return { width: base.width, height: base.height, data };
+}
