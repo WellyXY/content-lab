@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Clock3, ListFilter, Play, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock3, ListFilter, Play, Search } from "lucide-react";
 
 import { PostAdsCells, PostAdsHeadCells } from "@/components/content-lab/ads-panels";
 import { RelativeTime } from "@/components/content-lab/relative-time";
 import { adsSortValue } from "@/lib/ads";
 import { useLocale } from "@/lib/i18n";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
@@ -25,6 +26,8 @@ const POTENTIAL_BADGE = {
   low: { label: ["爆款可能性低", "Low potential"], className: "border-[#ff715b]/20 bg-[#ff715b]/8 text-[#ff9c8d]" },
 } as const;
 
+const PAGE_SIZE = 50;
+
 export default function PostsPage() {
   const { t, lang } = useLocale();
   const [posts, setPosts] = useState<PostSummary[]>([]);
@@ -34,6 +37,7 @@ export default function PostsPage() {
   const [market, setMarket] = useState("all");
   const [state, setState] = useState("all");
   const [kind, setKind] = useState("all");
+  const [paging, setPaging] = useState({ key: "", page: 0 });
   const [sort, setSort] = useState("publishedAt");
 
   useEffect(() => {
@@ -70,6 +74,12 @@ export default function PostsPage() {
       return b.delta24h - a.delta24h;
     });
   }, [kind, market, posts, query, sort, state]);
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  // A new filter or sort starts from the first page; a refresh that shrinks the list stays on the last one.
+  const filterKey = [kind, market, query, sort, state].join("|");
+  const current = Math.min(paging.key === filterKey ? paging.page : 0, pages - 1);
+  const setPage = (page: number): void => { setPaging({ key: filterKey, page }); window.scrollTo({ top: 0 }); };
+  const visible = filtered.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE);
 
   return (
     <>
@@ -109,12 +119,24 @@ export default function PostsPage() {
         </div>
 
         <CardContent className="p-0">
-          {loading ? <div className="space-y-2 p-5">{Array.from({ length: 6 }, (_, index) => <Skeleton className="h-16 w-full" key={index} />)}</div> : filtered.length ? (
+          {loading ? <div className="space-y-2 p-5">{Array.from({ length: 6 }, (_, index) => <Skeleton className="h-16 w-full" key={index} />)}</div> : null}
+          {!loading && filtered.length ? (
             <Table>
               <TableHeader><TableRow className="border-white/8 hover:bg-transparent"><TableHead className="pl-5 text-xs text-muted-foreground">{t("内容", "Post")}</TableHead><TableHead className="text-xs text-muted-foreground">{t("市场 / 项目", "Market / project")}</TableHead><TableHead className="text-xs text-muted-foreground">{t("发布时间", "Published")}</TableHead><TableHead className="text-right text-xs text-muted-foreground">{t("累计 VV", "Views")}</TableHead><TableHead className="text-right text-xs text-muted-foreground">{t("24h 增量", "24h growth")}</TableHead><PostAdsHeadCells /><TableHead className="hidden text-right text-xs text-muted-foreground md:table-cell" title={t("知识库 v2 盲测分数（0–10），不看这条帖子的成效", "Knowledge base v2 blind scores (0–10), made without this post's results")}>{t("注册潜力 / 创意", "Reg. potential / creative")}</TableHead><TableHead className="hidden text-xs text-muted-foreground lg:table-cell">{t("Agent 标签", "Agent tags")}</TableHead><TableHead className="hidden pr-5 text-right text-xs text-muted-foreground sm:table-cell">{t("状态", "Status")}</TableHead></TableRow></TableHeader>
-              <TableBody>{filtered.map((post) => <PostRow key={post.id} post={post} />)}</TableBody>
+              <TableBody>{visible.map((post) => <PostRow key={post.id} post={post} />)}</TableBody>
             </Table>
-          ) : (
+          ) : null}
+          {!loading && filtered.length > PAGE_SIZE ? (
+            <div className="flex items-center justify-between gap-3 border-t border-white/8 px-5 py-3 text-sm text-muted-foreground">
+              <span>{t(`第 ${current * PAGE_SIZE + 1}–${current * PAGE_SIZE + visible.length} 条，共 ${filtered.length} 条`, `${current * PAGE_SIZE + 1}–${current * PAGE_SIZE + visible.length} of ${filtered.length}`)}</span>
+              <div className="flex items-center gap-2">
+                <Button disabled={current === 0} onClick={() => setPage(current - 1)} size="sm" variant="outline"><ChevronLeft />{t("上一页", "Previous")}</Button>
+                <span className="font-mono text-xs">{current + 1} / {pages}</span>
+                <Button disabled={current >= pages - 1} onClick={() => setPage(current + 1)} size="sm" variant="outline">{t("下一页", "Next")}<ChevronRight /></Button>
+              </div>
+            </div>
+          ) : null}
+          {loading || filtered.length ? null : (
             <Empty className="border-0 py-24"><EmptyHeader><EmptyMedia variant="icon"><Search /></EmptyMedia><EmptyTitle>{error ? t("暂时无法读取帖子", "Could not load posts") : posts.length ? t("没有符合条件的帖子", "No posts match") : t("尚未加入真实帖子", "No posts yet")}</EmptyTitle><EmptyDescription>{error ? t("请刷新重试，系统不会用示范内容代替数据。", "Refresh to retry; the site never substitutes demo data.") : t("导入 Excel／CSV 或粘贴 TikTok 链接，开始采集真实数据。", "Import Excel/CSV or paste TikTok links to start collecting real data.")}</EmptyDescription></EmptyHeader></Empty>
           )}
         </CardContent>
