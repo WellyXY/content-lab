@@ -5,7 +5,8 @@ export const RECREATIONS_PER_POST = 2;
 export const MAX_RECREATION_BYTES = 50 * 1024 * 1024;
 
 export function recreationKey(id: string, filename: string): string | null {
-  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id) || !["video.mp4", "cover.jpg"].includes(filename)) return null;
+  // Videos: video.mp4 and cover.jpg. Carousel copies: img-NN-V.jpg (V 0 is the original, 1+ the generated versions).
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id) || !(["video.mp4", "cover.jpg"].includes(filename) || /^img-\d{2}-\d\.jpg$/.test(filename))) return null;
   return `recreations/${id}/${filename}`;
 }
 
@@ -16,7 +17,7 @@ export function rowToRecreation(row: Record<string, unknown>): Recreation {
   if (typeof row.notes_json === "string") {
     try {
       const parsed = JSON.parse(row.notes_json) as Recreation["notes"];
-      if (parsed && typeof parsed.summary_zh === "string" && Array.isArray(parsed.changes)) notes = parsed;
+      if (parsed && typeof parsed.summary_zh === "string" && Array.isArray(parsed.changes)) notes = { ...parsed, ...(Array.isArray(parsed.images) ? { images: parsed.images } : {}) };
     } catch { /* unreadable notes are shown as none */ }
   }
   return {

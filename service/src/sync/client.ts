@@ -123,7 +123,7 @@ export class SiteSyncClient {
   }
 
   /** PUT a rendered recreation file to the Site's media storage; returns its public path. */
-  async uploadRecreationFile(id: string, filename: "video.mp4" | "cover.jpg", path: string, contentType: string): Promise<string> {
+  async uploadRecreationFile(id: string, filename: string, path: string, contentType: string): Promise<string> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 120_000);
     try {

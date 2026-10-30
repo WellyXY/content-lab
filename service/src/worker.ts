@@ -4,9 +4,11 @@ import { resetAgentThread, runAgentTurn } from "./agent/agent.js";
 import { AnalyzerQuotaError } from "./analyzer/claude.js";
 import { CodexAuthError, analyzePost } from "./analyzer/codex.js";
 import { evaluatePost, scheduleEvaluations } from "./analyzer/evaluate.js";
+import { prepareMedia } from "./analyzer/media.js";
 import { assessPost, generatePlaybook, marketsDueForPlaybook, playbookJobKey, postsAwaitingAssessment } from "./analyzer/playbook.js";
 import { capturePost, ingestPost, recordCodexAuthAlert, refreshPostMetadata, syncPostReadModel } from "./collector.js";
 import { loadConfig } from "./config.js";
+import { runImageCopy } from "./copy/run.js";
 import { openDatabase, type ContentLabDatabase } from "./db/database.js";
 import { normalizeTikTokPostUrl } from "./domain/tiktok-url.js";
 import { createContentLabFeishuBot } from "./feishu/bot.js";
@@ -114,6 +116,19 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
     if (!syncClient) throw new Error("Recreate jobs need site sync to upload the result");
     const client = syncClient;
     const { recreationId, sitePostId } = job.payload as { recreationId: string; sitePostId: string };
+    const target = database.prepare("SELECT type FROM posts WHERE site_post_id=? OR id=? LIMIT 1").get(sitePostId, sitePostId) as { type: string | null } | undefined;
+    if (target?.type === "photo") {
+      // Photo carousels are copied (new person, outfit and place; original text and UI kept), not re-edited.
+      await runImageCopy(database, config, { recreationId, sitePostId, finalAttempt: job.attempts >= job.maxAttempts }, {
+        refresh: async (postId) => {
+          await refreshPostMetadata(database, provider, postId);
+          await prepareMedia(config.mediaDir, database.prepare("SELECT * FROM posts WHERE id=?").get(postId) as unknown as Parameters<typeof prepareMedia>[1]);
+        },
+        upload: (id, filename, path, contentType) => client.uploadRecreationFile(id, filename, path, contentType),
+        ...(feishuBot ? { notify: feishuBot.notifyOwner } : {}),
+      });
+      return;
+    }
     await runRecreation(database, config, { recreationId, sitePostId, finalAttempt: job.attempts >= job.maxAttempts }, {
       refresh: (postId) => refreshPostMetadata(database, provider, postId),
       upload: (id, filename, path, contentType) => client.uploadRecreationFile(id, filename, path, contentType),

@@ -155,7 +155,7 @@ export default function PostDetailPage() {
       <div className="mt-4"><PostAdsCard ads={post.ads} /></div>
       {evaluation ? <div className="mt-4"><EvaluationCard evaluation={evaluation} /></div> : null}
       <div className="mt-4"><AssessmentCard legacy={Boolean(evaluation)} market={post.market} prediction={prediction} /></div>
-      {data.recreations?.length ? <div className="mt-4"><RecreatePanel recreations={data.recreations} /></div> : null}
+      {data.recreations?.length ? <div className="mt-4"><RecreatePanel photo={post.postType === "photo"} recreations={data.recreations} /></div> : null}
 
       <section className="mt-4 grid items-start gap-4 xl:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)]">
         <Card className="border-white/8 bg-card/80 shadow-none">

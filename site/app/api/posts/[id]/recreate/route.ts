@@ -11,7 +11,6 @@ export async function POST(request: Request, context: Context) {
     const db = getD1();
     const post = await db.prepare("SELECT id, post_type, analysis_state FROM posts WHERE id = ? LIMIT 1").bind(id).first<Record<string, unknown>>();
     if (!post) return jsonError("找不到这条帖子 · Post not found", 404);
-    if (post.post_type === "photo") return jsonError("图集暂不支持重制 · Carousels cannot be recreated yet", 400);
     if (post.analysis_state !== "complete") return jsonError("分析完成后才能重制 · Recreate after the analysis completes", 400);
     const recreationId = crypto.randomUUID();
     const now = new Date().toISOString();

@@ -2,6 +2,7 @@ import type { ServiceConfig } from "../config.js";
 import type { ContentLabDatabase } from "../db/database.js";
 import { AnalyzerQuotaError } from "../analyzer/claude.js";
 import { putSyncEvent } from "../sync/outbox.js";
+import type { ImageCopyNotes } from "../copy/run.js";
 import { runRecreateAgent, type RecreateNotes } from "./agent.js";
 import { renderRecreation, type Rendition } from "./render.js";
 import { prepareRecreateWorkspace, SourceUnavailableError, type RecreateWorkspace } from "./workspace.js";
@@ -15,11 +16,11 @@ export interface RecreateDeps {
   render?: (dir: string, sourceDurationS: number) => Promise<Rendition>;
 }
 
-type Status = "queued" | "preparing" | "designing" | "rendering" | "complete" | "failed";
-type SaveFields = { notes?: RecreateNotes; videoUrl?: string; coverUrl?: string; error?: string; counts?: number };
+export type Status = "queued" | "preparing" | "designing" | "rendering" | "complete" | "failed";
+export type SaveFields = { notes?: RecreateNotes | ImageCopyNotes; videoUrl?: string; coverUrl?: string; error?: string; counts?: number };
 
 /** Persist a recreation's status and queue the matching Site event. */
-function saveRecreation(db: ContentLabDatabase, ids: { id: string; postId: string; sitePostId: string }, status: Status, fields: SaveFields = {}): void {
+export function saveRecreation(db: ContentLabDatabase, ids: { id: string; postId: string; sitePostId: string }, status: Status, fields: SaveFields = {}): void {
   const at = new Date().toISOString();
   db.prepare(`INSERT INTO recreations(id, post_id, site_post_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at`).run(ids.id, ids.postId, ids.sitePostId, status, at, at);

@@ -4,7 +4,7 @@ import { MAX_RECREATION_BYTES, recreationKey } from "@/lib/server/recreations";
 
 type Context = { params: Promise<{ id: string; filename: string }> };
 
-/** The worker uploads a rendered recreation (video.mp4) or its cover (cover.jpg). */
+/** The worker uploads a rendered recreation (video.mp4) and its cover (cover.jpg), or the images of a carousel copy (img-NN-V.jpg). */
 export async function PUT(request: Request, context: Context) {
   const rejected = requireWorker(request);
   if (rejected) return rejected;
