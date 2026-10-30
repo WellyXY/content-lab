@@ -101,7 +101,7 @@ const docCache = (reader: object): Map<string, { doc: FeishuDocument; at: number
 
 /** Tools that change the owner's memory or spend model quota. */
 export const OWNER_ONLY_TOOLS = new Set(["list_memories", "remember", "forget", "queue_reanalysis", "queue_reassessment", "queue_playbook", "refresh_ads"]);
-/** Manual Spark Ads refreshes on top of the daily run. */
+/** Manual Spark Ads refreshes on top of the automatic run every four hours. */
 export const ADS_REFRESHES_PER_DAY = 3;
 /** Tables members cannot read through run_sql: memory, chat logs, job payloads (website IPs) and operations state. */
 const PRIVATE_TABLES = new Set(["memories", "agent_turns", "agent_sessions", "jobs", "rate_limits", "sync_outbox", "alerts", "scheduler_state", "change_requests"]);
@@ -388,11 +388,11 @@ tags_json: {dimension: {value, confidence}}; use json_extract.`, { sql: z.string
       return queue("assess", { postId: id, version }, `assess:${id}:${version}`);
     }),
 
-    tool("refresh_ads", `Refresh Spark Ads delivery data (spend, registrations, costs) for every tracked post now instead of waiting for the daily run; at most ${ADS_REFRESHES_PER_DAY} a day.`, {}, async () => {
+    tool("refresh_ads", `Refresh Spark Ads delivery data (spend, registrations, costs) for every tracked post now instead of waiting for the automatic refresh (every four hours from 10:30 Taipei); at most ${ADS_REFRESHES_PER_DAY} a day.`, {}, async () => {
       used("refresh_ads");
       const since = new Date(Date.now() - 86_400_000).toISOString();
       const today = (db.prepare("SELECT COUNT(*) AS count FROM jobs WHERE kind='ads_sync' AND idempotency_key LIKE 'agent:%' AND created_at >= ?").get(since) as { count: number }).count;
-      if (today >= ADS_REFRESHES_PER_DAY) return fail(`今天已经手动刷新 ${ADS_REFRESHES_PER_DAY} 次投放数据，明天再试，或等每天的自动更新。`);
+      if (today >= ADS_REFRESHES_PER_DAY) return fail(`今天已经手动刷新 ${ADS_REFRESHES_PER_DAY} 次投放数据，明天再试；系统每 4 小时也会自动更新一次。`);
       return queue("ads_sync", {}, `ads:${Date.now()}`);
     }),
 

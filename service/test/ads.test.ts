@@ -162,11 +162,14 @@ describe("ads sync", () => {
 import { adsSyncDue } from "../src/ads/schedule.js";
 
 describe("ads schedule", () => {
-  it("is due once a day from 10:30 in Taipei", () => {
-    expect(adsSyncDue(new Date("2026-10-10T02:29:00Z"))).toBeNull();
-    expect(adsSyncDue(new Date("2026-10-10T02:30:00Z"))).toBe("ads_sync:2026-10-10");
-    expect(adsSyncDue(new Date("2026-10-10T15:59:00Z"))).toBe("ads_sync:2026-10-10");
-    expect(adsSyncDue(new Date("2026-10-10T16:00:00Z"))).toBeNull();
+  it("is due every four hours from 10:30 in Taipei", () => {
+    // Every four hours from 10:30 Taipei: 10:30, 14:30, 18:30, 22:30, 02:30, 06:30.
+    expect(adsSyncDue(new Date("2026-10-10T02:29:00Z"))).toBe("ads_sync:2026-10-09:5");
+    expect(adsSyncDue(new Date("2026-10-10T02:30:00Z"))).toBe("ads_sync:2026-10-10:0");
+    expect(adsSyncDue(new Date("2026-10-10T06:29:00Z"))).toBe("ads_sync:2026-10-10:0");
+    expect(adsSyncDue(new Date("2026-10-10T06:30:00Z"))).toBe("ads_sync:2026-10-10:1");
+    expect(adsSyncDue(new Date("2026-10-10T18:30:00Z"))).toBe("ads_sync:2026-10-10:4");
+    expect(adsSyncDue(new Date("2026-10-10T22:30:00Z"))).toBe("ads_sync:2026-10-10:5");
   });
 });
 

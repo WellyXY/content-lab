@@ -86,7 +86,7 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
         database.prepare("INSERT INTO scheduler_state(key, value, updated_at) VALUES ('ads_alert_date', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at").run(today, new Date().toISOString());
         await feishuBot?.notifyOwner(connectorProblem
           ? `投放数据同步失败：TikTok 连接器连不上（${(result.error ?? "").slice(0, 120)}）。请在 Claude 的连接器设置里重新连接 TikTok for Business。`
-          : `投放数据同步重试后仍然失败：${(result.error ?? "").slice(0, 200)}。网站保留上一次的数据，明天会自动再试，也可以让我手动刷新。`).catch(() => undefined);
+          : `投放数据同步重试后仍然失败：${(result.error ?? "").slice(0, 200)}。网站保留上一次的数据，4 小时后会自动再试，也可以让我手动刷新。`).catch(() => undefined);
       }
       // Fail the job so the queue retries it.
       throw new Error(`Ads sync failed: ${result.error ?? "unknown"}`);
@@ -275,8 +275,7 @@ export async function runWorkerCycle(): Promise<void> {
   if (pending.queued) log("pending_binds_queued", pending);
   const sheetKey = sheetSyncDue(new Date());
   if (sheetKey) enqueueJob(db, { kind: "sheet_sync", payload: {}, idempotencyKey: sheetKey, maxAttempts: 2 });
-  const adsKey = adsSyncDue(new Date());
-  if (adsKey) enqueueJob(db, { kind: "ads_sync", payload: {}, idempotencyKey: adsKey, maxAttempts: 2 });
+  enqueueJob(db, { kind: "ads_sync", payload: {}, idempotencyKey: adsSyncDue(new Date()), maxAttempts: 2 });
   const evaluations = scheduleEvaluations(db);
   if (evaluations.fresh || evaluations.backfill) log("evaluations_queued", evaluations);
   const staleRecreations = failStaleRecreations(db);
