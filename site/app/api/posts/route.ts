@@ -38,7 +38,7 @@ export async function GET(request: Request) {
     const state = url.searchParams.get("state")?.trim();
     const query = url.searchParams.get("q")?.trim();
     const sort = sortColumns[url.searchParams.get("sort") ?? "publishedAt"] ?? sortColumns.publishedAt;
-    const limit = Math.min(200, Math.max(1, integer(url.searchParams.get("limit"), 100)));
+    const limit = Math.min(5_000, Math.max(1, integer(url.searchParams.get("limit"), 100)));
 
     const filters: string[] = [];
     const values: unknown[] = [];

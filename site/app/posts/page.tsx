@@ -33,11 +33,12 @@ export default function PostsPage() {
   const [query, setQuery] = useState("");
   const [market, setMarket] = useState("all");
   const [state, setState] = useState("all");
+  const [kind, setKind] = useState("all");
   const [sort, setSort] = useState("publishedAt");
 
   useEffect(() => {
     const controller = new AbortController();
-    const refresh = () => fetch(`/api/posts?sort=${encodeURIComponent(sort)}`, { cache: "no-store", signal: controller.signal })
+    const refresh = () => fetch(`/api/posts?sort=${encodeURIComponent(sort)}&limit=5000`, { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("posts unavailable");
         return response.json() as Promise<{ mode: "live"; posts: PostSummary[] }>;
@@ -55,6 +56,7 @@ export default function PostsPage() {
     const result = posts.filter((post) => {
       if (market !== "all" && post.market !== market) return false;
       if (state !== "all" && post.trackingState !== state) return false;
+      if (kind !== "all" && post.postType !== kind) return false;
       if (!normalized) return true;
       return [post.creatorHandle, post.caption, post.projectTag].some((value) => value?.toLowerCase().includes(normalized));
     });
@@ -67,7 +69,7 @@ export default function PostsPage() {
       if (sort === "potential") return (a.potential ? POTENTIAL_RANK[a.potential] : 3) - (b.potential ? POTENTIAL_RANK[b.potential] : 3) || b.views - a.views;
       return b.delta24h - a.delta24h;
     });
-  }, [market, posts, query, sort, state]);
+  }, [kind, market, posts, query, sort, state]);
 
   return (
     <>
@@ -83,7 +85,7 @@ export default function PostsPage() {
       </div>
 
       <Card className="gap-0 overflow-hidden border-white/8 bg-card/80 py-0 shadow-none">
-        <div className="grid gap-3 border-b border-white/8 p-4 md:grid-cols-[minmax(220px,1fr)_150px_150px_220px]">
+        <div className="grid gap-3 border-b border-white/8 p-4 md:grid-cols-[minmax(220px,1fr)_150px_130px_150px_220px]">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input aria-label={t("搜索创作者、文案或项目", "Search creators, captions or projects")} className="h-10 border-white/10 bg-white/[0.025] pl-9" onChange={(event) => setQuery(event.target.value)} placeholder={t("搜索创作者、文案、项目", "Search creators, captions, projects")} value={query} />
@@ -91,6 +93,10 @@ export default function PostsPage() {
           <Select onValueChange={setMarket} value={market}>
             <SelectTrigger className="h-10 w-full border-white/10 bg-white/[0.025]"><SelectValue placeholder={t("全部市场", "All markets")} /></SelectTrigger>
             <SelectContent><SelectItem value="all">{t("全部市场", "All markets")}</SelectItem>{MARKETS.map((item) => <SelectItem key={item.code} value={item.code}>{item.code} {t(item.label, item.labelEn)}</SelectItem>)}</SelectContent>
+          </Select>
+          <Select onValueChange={setKind} value={kind}>
+            <SelectTrigger aria-label={t("内容类型", "Post type")} className="h-10 w-full border-white/10 bg-white/[0.025]"><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="all">{t("全部类型", "All types")}</SelectItem><SelectItem value="video">{t("视频", "Video")}</SelectItem><SelectItem value="photo">{t("图文", "Photo")}</SelectItem></SelectContent>
           </Select>
           <Select onValueChange={setState} value={state}>
             <SelectTrigger className="h-10 w-full border-white/10 bg-white/[0.025]"><SelectValue placeholder={t("全部状态", "All states")} /></SelectTrigger>
