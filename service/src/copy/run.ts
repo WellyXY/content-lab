@@ -67,7 +67,7 @@ export async function runImageCopy(
       const source = sources[layout.index - 1]!;
       const size = await readRgb(source).then((image) => ({ width: image.width, height: image.height }));
       const workDir = join(dir, `img-${String(layout.index).padStart(2, "0")}-${variant}`);
-      const prompt = copyPrompt({ market: post.market, scene: layout.scene, ...size, variant });
+      const prompt = copyPrompt({ market: post.market, scene: layout.scene, replace: layout.replace, ...size, variant });
       const base = await (deps.generate ?? ((d, s, p) => generateWithCodex(d, s, p, { model: config.codexModel })))(workDir, source, prompt).catch(() => null);
       if (base) generated.set(`${layout.index}-${variant}`, base);
     });

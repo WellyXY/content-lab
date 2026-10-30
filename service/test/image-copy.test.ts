@@ -42,15 +42,16 @@ describe("text and UI copied from the original", () => {
   });
 
   it("checks the layout the model returns", () => {
-    const photo = { index: 1, kind: "photo", scene: "selfie", overlays: [{ type: "text", box: [0.1, 0.1, 0.5, 0.2], fill: "#ffffff" }, { type: "ui", box: [0.2, 0.5, 0.8, 0.9], fill: "" }] };
-    expect(validateLayout({ images: [photo, { index: 2, kind: "screenshot", scene: "", overlays: [] }] }, 2)[0]!.overlays).toHaveLength(2);
+    const photo = { index: 1, kind: "photo", scene: "selfie", replace: "grey crop top", overlays: [{ type: "text", box: [0.1, 0.1, 0.5, 0.2], fill: "#ffffff" }, { type: "ui", box: [0.2, 0.5, 0.8, 0.9], fill: "" }] };
+    expect(validateLayout({ images: [photo, { index: 2, kind: "screenshot", scene: "", replace: "", overlays: [] }] }, 2)[0]!.overlays).toHaveLength(2);
     expect(() => validateLayout({ images: [photo] }, 2)).toThrow(/exactly 2/);
     expect(() => validateLayout({ images: [{ ...photo, overlays: [{ type: "ui", box: [0.5, 0.5, 0.2, 0.9], fill: "" }] }] }, 1)).toThrow(/x1<=x0/);
     expect(() => validateLayout({ images: [{ ...photo, overlays: [{ type: "text", box: [0.1, 0.1, 0.2, 0.2], fill: "yellow" }] }] }, 1)).toThrow(/#rrggbb/);
   });
 
   it("asks for a local creator of the post's market and no overlaid text", () => {
-    const prompt = copyPrompt({ market: "TH", scene: "one-arm selfie, winking", width: 1080, height: 1920, variant: 2 });
+    const prompt = copyPrompt({ market: "TH", scene: "one-arm selfie, winking", replace: "grey ribbed crop top and shorts", width: 1080, height: 1920, variant: 2 });
+    expect(prompt).toContain("Do not reuse any of this from the original: grey ribbed crop top and shorts");
     expect(prompt).toContain("Thai creator");
     expect(prompt).toContain("one-arm selfie, winking");
     expect(prompt).toMatch(/NO overlaid text/);
@@ -71,8 +72,8 @@ describe("copying a carousel", () => {
     let prompts = 0;
     await runImageCopy(db, { mediaDir, codexModel: null } as never, { recreationId: "rc1", sitePostId: post.id }, {
       analyze: async () => [
-        { index: 1, kind: "photo", scene: "dark selfie", overlays: [{ type: "text", box: [0.05, 0.05, 0.4, 0.3], fill: "#f5c83c" }] },
-        { index: 2, kind: "screenshot", scene: "", overlays: [] },
+        { index: 1, kind: "photo", scene: "dark selfie", replace: "black hoodie, bedroom", overlays: [{ type: "text", box: [0.05, 0.05, 0.4, 0.3], fill: "#f5c83c" }] },
+        { index: 2, kind: "screenshot", scene: "", replace: "", overlays: [] },
       ],
       generate: async (dir, _source, prompt) => {
         prompts += 1;

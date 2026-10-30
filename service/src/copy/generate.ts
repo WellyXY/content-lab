@@ -10,12 +10,12 @@ export const MARKET_PLACES: Record<string, string> = {
   PH: "a Filipino creator in the Philippines (for example Metro Manila)",
 };
 
-export function copyPrompt(input: { market: string | null; scene: string; width: number; height: number; variant: number }): string {
+export function copyPrompt(input: { market: string | null; scene: string; replace?: string; width: number; height: number; variant: number }): string {
   const place = MARKET_PLACES[input.market ?? ""] ?? "a different creator";
   return [
     `Recreate the attached source.jpg as a new photo by ${place}. Use the image generation tool and save the result in this directory as base.png.`,
-    `Keep: the same camera angle, framing, crop and subject placement, the same pose and gesture, the same emotion, lighting and colour mood, and the same story. The original shot: ${input.scene}`,
-    "Replace: the person or people (different faces and hairstyles), their clothing and accessories, and the location (a different, locally typical setting). Logos or app elements that are physically in the original scene may stay; add none of your own.",
+    `Keep: the same camera angle, framing, crop and subject placement, the same pose and gesture, the same emotion, lighting and colour mood, and the same story. The shot to keep: ${input.scene}`,
+    `Change clearly, so nobody could mistake it for the original: a different person (different face and hairstyle), a different outfit in a different colour and cut, and a different kind of place with different props, typical for the creator's country.${input.replace ? ` Do not reuse any of this from the original: ${input.replace}.` : ""} Logos or app elements that are physically in the original scene may stay; add none of your own.`,
     `The image must contain NO overlaid text, captions, emoji, stickers, app pop-ups or watermarks: the original ones are laid back on top by a program afterwards, so keep the areas where they were simple. Aim for ${input.width}x${input.height} pixels (the program scales and crops to that size).`,
     `It must look like a real, casual smartphone photo a young creator would post, not an ad or a studio shot. All people are adults, fully clothed, non-sexual. This is variant ${input.variant}: make it clearly different from other variants in person, outfit and place.`,
     "If the image tool declines a request, rephrase it in neutral terms and try again. Reply with only the file name.",
