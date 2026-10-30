@@ -115,9 +115,10 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
   if (job.kind === "recreate") {
     if (!syncClient) throw new Error("Recreate jobs need site sync to upload the result");
     const client = syncClient;
-    const { recreationId, sitePostId } = job.payload as { recreationId: string; sitePostId: string };
+    const { recreationId, sitePostId, mode } = job.payload as { recreationId: string; sitePostId: string; mode?: "copy" | "recreate" };
     const target = database.prepare("SELECT type FROM posts WHERE site_post_id=? OR id=? LIMIT 1").get(sitePostId, sitePostId) as { type: string | null } | undefined;
-    if (target?.type === "photo") {
+    // Carousel jobs from before modes existed were copies.
+    if (mode === "copy" || (!mode && target?.type === "photo")) {
       // Photo carousels are copied (new person, outfit and place; original text and UI kept), not re-edited.
       await runImageCopy(database, config, { recreationId, sitePostId, finalAttempt: job.attempts >= job.maxAttempts }, {
         refresh: async (postId) => {

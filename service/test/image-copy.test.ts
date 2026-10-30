@@ -104,3 +104,23 @@ describe("copying a carousel", () => {
     db.close();
   });
 });
+
+import { carouselSlideshow, slideSeconds } from "../src/recreate/workspace.js";
+import { buildRecreateBrief } from "../src/recreate/brief.js";
+
+describe("recreating a carousel as a video", () => {
+  it("turns the images into a 1080x1920 slideshow with an audio track, at least 6 seconds long", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "slideshow-"));
+    const images = [join(dir, "a.jpg"), join(dir, "b.jpg")];
+    for (const image of images) await writeJpeg(image, sample());
+    await carouselSlideshow(images, join(dir, "source.mp4"));
+    const info = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type,width,height:format=duration", "-of", "json", join(dir, "source.mp4")], { encoding: "utf8" })) as { streams: Array<{ codec_type: string; width?: number; height?: number }>; format: { duration: string } };
+    expect(info.streams.find((stream) => stream.codec_type === "video")).toMatchObject({ width: 1080, height: 1920 });
+    expect(info.streams.some((stream) => stream.codec_type === "audio")).toBe(true);
+    expect(Number(info.format.duration)).toBeCloseTo(6, 0);
+    expect(slideSeconds(1)).toBe(6);
+    expect(slideSeconds(5)).toBe(3);
+    const brief = buildRecreateBrief({ postId: "p", market: "PH", durationS: 6, caption: null, transcript: null, script: [], assessment: null, playbookSummary: null, memories: "", carousel: { images: 2, secondsEach: 3 } });
+    expect(brief).toContain("photo carousel");
+  });
+});

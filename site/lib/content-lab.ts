@@ -240,6 +240,8 @@ export type DashboardData = {
 
 export type Recreation = {
   id: string;
+  /** "recreate": motion-graphics re-edit; "copy": a carousel reshot with a new creator. */
+  kind: "recreate" | "copy";
   status: "queued" | "preparing" | "designing" | "rendering" | "complete" | "failed";
   notes: {
     summary_zh: string; summary_en: string; changes: Array<{ zh: string; en: string; suggestion: string | null }>; skipped?: Array<{ zh: string; en: string; suggestion: string | null }>;

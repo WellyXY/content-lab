@@ -165,7 +165,7 @@ function PostRow({ post }: { post: PostSummary }) {
           </div>
         </div>
       </TableCell>
-      <TableCell><p className="font-mono text-xs font-semibold">{post.market}</p><p className="mt-1 max-w-32 truncate text-xs text-muted-foreground">{post.projectTag ?? t("未分类", "Unassigned")}</p></TableCell>
+      <TableCell><p className="flex items-center gap-1.5 font-mono text-xs font-semibold">{post.market}<span className={`rounded px-1 py-px font-sans text-[10px] font-normal ${post.postType === "photo" ? "bg-violet-400/12 text-violet-200" : "bg-cyan-300/10 text-cyan-200"}`}>{post.postType === "photo" ? t("图文", "Photo") : t("视频", "Video")}</span></p><p className="mt-1 max-w-32 truncate text-xs text-muted-foreground">{post.projectTag ?? t("未分类", "Unassigned")}</p></TableCell>
       <TableCell className="whitespace-nowrap">
         {published ? <time dateTime={post.publishedAt ?? undefined} title={`${published.date} ${published.time} ${published.timeZone}`}>
           <span className="block font-mono text-sm tabular-nums">{published.date}</span>

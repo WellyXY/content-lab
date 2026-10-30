@@ -9,6 +9,8 @@ export interface RecreateInputs {
   /** KB v2 motivation analysis and script changes; preferred over the v1 suggestions when present. */
   evaluation?: { desire: string; whyPopup: string; firstPersonThought: string; gap: string; recommendations: string[]; barriers: string[] } | null;
   playbookSummary: string | null;
+  /** Set for a photo carousel: assets/source.mp4 is a silent slideshow of its images. */
+  carousel?: { images: number; secondsEach: number };
   memories: string;
 }
 
@@ -38,6 +40,7 @@ export function buildRecreateBrief(inputs: RecreateInputs): string {
     "",
     `- Market: ${inputs.market}. Caption language: ${LANGUAGE_NAMES[captionCode] ?? captionCode} (${captionCode}).`,
     `- Source duration: ${inputs.durationS.toFixed(1)} s. The result must not be longer.`,
+    ...(inputs.carousel ? [`- This post is a photo carousel: assets/source.mp4 is a silent slideshow of its ${inputs.carousel.images} images, ${inputs.carousel.secondsEach} s each (the images are also in assets/frames). Turn it into a motion-graphics video: animate each image (punch-ins, pans, transitions), keep every image's on-screen text and app screenshots readable, and set the pacing to the story. There is no original audio: keep the source clip's silent audio track in the composition (the render must have an audio track) and add no music.`] : []),
     `- Viral potential before recreation: ${inputs.assessment?.band ?? "not assessed"}.`,
     "",
     ...(inputs.evaluation ? [

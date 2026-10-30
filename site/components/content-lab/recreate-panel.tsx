@@ -14,12 +14,13 @@ const ACTIVE = new Set<Recreation["status"]>(["queued", "preparing", "designing"
 
 export const recreationsUsed = (recreations: Recreation[]): number => recreations.reduce((sum, item) => sum + item.counts, 0);
 
-/** Header action: starts an Agent recreation while the post has attempts left. */
-export function RecreateButton({ post, recreations, onStarted }: { post: PostSummary; recreations: Recreation[]; onStarted: (recreation: Recreation) => void }) {
+/** Header action: starts an Agent recreation ("recreate") or a carousel copy ("copy") while the post has attempts of that kind left. */
+export function RecreateButton({ post, recreations: all, mode = "recreate", onStarted }: { post: PostSummary; recreations: Recreation[]; mode?: Recreation["kind"]; onStarted: (recreation: Recreation) => void }) {
   const { t } = useLocale();
   const [busy, setBusy] = useState(false);
+  const recreations = all.filter((item) => item.kind === mode);
   const used = recreationsUsed(recreations);
-  const photo = post.postType === "photo";
+  const photo = mode === "copy";
   const disabledReason = post.analysisState !== "complete" ? (photo ? t("分析完成后可复制", "Copy after analysis") : t("分析完成后可重制", "Recreate after analysis"))
     : recreations.some((item) => ACTIVE.has(item.status)) ? (photo ? t("复制进行中", "Copying…") : t("重制进行中", "Recreating…"))
     : used >= CAP ? (photo ? t("复制次数已用完", "No copies left") : t("重制次数已用完", "No recreations left")) : null;
@@ -27,11 +28,11 @@ export function RecreateButton({ post, recreations, onStarted }: { post: PostSum
   async function start() {
     setBusy(true);
     try {
-      const response = await fetch(`/api/posts/${encodeURIComponent(post.id)}/recreate`, { method: "POST" });
+      const response = await fetch(`/api/posts/${encodeURIComponent(post.id)}/recreate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode }) });
       const result = await response.json().catch(() => ({})) as { error?: string; recreationId?: string };
       if (!response.ok || !result.recreationId) throw new Error(result.error ?? t("暂时无法开始重制", "Could not start the recreation"));
       const now = new Date().toISOString();
-      onStarted({ id: result.recreationId, status: "queued", notes: null, videoUrl: null, coverUrl: null, error: null, counts: 1, createdAt: now, updatedAt: now });
+      onStarted({ id: result.recreationId, kind: mode, status: "queued", notes: null, videoUrl: null, coverUrl: null, error: null, counts: 1, createdAt: now, updatedAt: now });
       toast.success(photo ? t("已排队，生成的图片会显示在下方（约 5–15 分钟）", "Queued; the images appear below (about 5–15 minutes)") : t("已排队，Agent 完成后会显示在下方", "Queued; the result appears below when the Agent finishes"));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("暂时无法开始重制", "Could not start the recreation"));
@@ -101,8 +102,10 @@ const ERRORS: Record<string, [string, string]> = {
 };
 
 /** Every recreation of the post: progress, the rendered video and the Agent's notes. */
-export function RecreatePanel({ recreations, photo = false }: { recreations: Recreation[]; photo?: boolean }) {
+export function RecreatePanel({ recreations: all, mode = "recreate" }: { recreations: Recreation[]; mode?: Recreation["kind"] }) {
   const { t, lang } = useLocale();
+  const recreations = all.filter((item) => item.kind === mode);
+  const photo = mode === "copy";
   if (!recreations.length) return null;
   const stage = (status: Recreation["status"]): [string, string] => photo ? PHOTO_STAGES[status] ?? STAGES[status] : STAGES[status];
   return (

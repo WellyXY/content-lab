@@ -124,6 +124,8 @@ export const recreations = sqliteTable(
     coverUrl: text("cover_url"),
     error: text("error"),
     counts: integer("counts").notNull().default(1),
+    /** "recreate": motion-graphics re-edit; "copy": a carousel reshot with a new creator. Each has its own per-post limit. */
+    kind: text("kind").notNull().default("recreate"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },

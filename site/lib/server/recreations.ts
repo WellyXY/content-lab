@@ -21,7 +21,7 @@ export function rowToRecreation(row: Record<string, unknown>): Recreation {
     } catch { /* unreadable notes are shown as none */ }
   }
   return {
-    id: String(row.id), status: String(row.status) as Recreation["status"], notes,
+    id: String(row.id), kind: row.kind === "copy" ? "copy" : "recreate", status: String(row.status) as Recreation["status"], notes,
     videoUrl: text(row.video_url), coverUrl: text(row.cover_url), error: text(row.error),
     counts: Number(row.counts ?? 1), createdAt: String(row.created_at), updatedAt: String(row.updated_at),
   };
@@ -30,10 +30,10 @@ export function rowToRecreation(row: Record<string, unknown>): Recreation {
 /** Queued or running recreations across the whole site; the Mac runs one at a time, so a script cannot fill hours of queue. */
 export const ACTIVE_RECREATIONS_LIMIT = 5;
 
-/** Binds: id, post_id, created_at, updated_at, post_id (for the per-post count), per-post cap, site-wide active cap. */
-export const insertRecreationSql = `INSERT INTO recreations (id, post_id, status, counts, created_at, updated_at)
-  SELECT ?, ?, 'queued', 1, ?, ?
-  WHERE (SELECT COALESCE(SUM(counts), 0) FROM recreations WHERE post_id = ?) < ?
+/** Binds: id, post_id, kind, created_at, updated_at, post_id and kind (for the per-post count), per-post cap, site-wide active cap. */
+export const insertRecreationSql = `INSERT INTO recreations (id, post_id, kind, status, counts, created_at, updated_at)
+  SELECT ?, ?, ?, 'queued', 1, ?, ?
+  WHERE (SELECT COALESCE(SUM(counts), 0) FROM recreations WHERE post_id = ? AND kind = ?) < ?
     AND (SELECT COUNT(*) FROM recreations WHERE status IN ('queued', 'preparing', 'designing', 'rendering')) < ?`;
 
 /** Browsers mark requests from other sites; scripts without the header are held back by the active limit. */

@@ -57,6 +57,13 @@
       "when": 1791607976077,
       "tag": "0007_post_ads",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793346621593,
+      "tag": "0008_recreation_kind",
+      "breakpoints": true
     }
   ]
 }

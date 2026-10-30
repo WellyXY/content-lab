@@ -1,0 +1,1 @@
+ALTER TABLE `recreations` ADD `kind` text DEFAULT 'recreate' NOT NULL;

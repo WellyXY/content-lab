@@ -21,7 +21,8 @@ export type RemoteAnalyzeJob = {
 export type RemoteRecreateJob = {
   id: string;
   kind: "recreate";
-  payload: { recreationId: string; postId: string };
+  /** "copy" reshoots a carousel's photos; "recreate" re-edits with motion graphics. Older Sites send no mode. */
+  payload: { recreationId: string; postId: string; mode?: "copy" | "recreate" };
   attempts: number;
 };
 
@@ -104,11 +105,12 @@ export class SiteSyncClient {
         return [{ id: job.id, kind: "analyze", payload: { postId }, attempts }];
       }
       if (job.kind === "recreate") {
-        const { recreationId, postId } = job.payload;
+        const { recreationId, postId, mode } = job.payload;
         // The recreation id names a folder the worker deletes and rebuilds: plain tokens only.
         const token = (value: unknown) => typeof value === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(value);
         if (!token(recreationId) || !token(postId)) return reject("Recreate job has an invalid recreationId or postId");
-        return [{ id: job.id, kind: "recreate", payload: { recreationId: recreationId as string, postId: postId as string }, attempts }];
+        if (mode !== undefined && mode !== "copy" && mode !== "recreate") return reject("Recreate job has an invalid mode");
+        return [{ id: job.id, kind: "recreate", payload: { recreationId: recreationId as string, postId: postId as string, ...(mode ? { mode } : {}) }, attempts }];
       }
       return reject(`Unsupported job kind: ${String(job.kind)}`);
     });
@@ -187,7 +189,7 @@ export async function pullRemoteJobs(db: ContentLabDatabase, client: SiteSyncCli
       enqueueJob(db, { kind: "remote_analyze", payload: { sitePostId: job.payload.postId }, syncRemoteId: job.id, idempotencyKey: `site-job:${job.id}`, maxAttempts: 3 });
     } else if (job.kind === "recreate") {
       // Progress travels on the recreation row, so the Site job is done once the work is queued here.
-      enqueueJob(db, { kind: "recreate", payload: { recreationId: job.payload.recreationId, sitePostId: job.payload.postId }, idempotencyKey: `site-job:${job.id}`, maxAttempts: 2 });
+      enqueueJob(db, { kind: "recreate", payload: { recreationId: job.payload.recreationId, sitePostId: job.payload.postId, ...(job.payload.mode ? { mode: job.payload.mode } : {}) }, idempotencyKey: `site-job:${job.id}`, maxAttempts: 2 });
       await client.completeJob(job.id);
     }
     accepted += 1;

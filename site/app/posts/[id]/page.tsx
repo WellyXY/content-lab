@@ -108,13 +108,17 @@ export default function PostDetailPage() {
         <div className="flex shrink-0 flex-wrap gap-2">
           <Button asChild variant="outline"><a href={post.url} rel="noreferrer" target="_blank"><Play />{t("在 TikTok 查看", "Open on TikTok")}</a></Button>
           <Button disabled={retrying} onClick={retryAnalysis} variant="outline"><RefreshCw className={retrying ? "animate-spin" : ""} />{t("重试分析", "Re-analyze")}</Button>
-          <RecreateButton onStarted={(recreation) => setData((current) => current ? { ...current, recreations: [recreation, ...(current.recreations ?? [])] } : current)} post={post} recreations={data.recreations ?? []} />
+          <RecreateButton mode="recreate" onStarted={(recreation) => setData((current) => current ? { ...current, recreations: [recreation, ...(current.recreations ?? [])] } : current)} post={post} recreations={data.recreations ?? []} />
+          {post.postType === "photo" ? <RecreateButton mode="copy" onStarted={(recreation) => setData((current) => current ? { ...current, recreations: [recreation, ...(current.recreations ?? [])] } : current)} post={post} recreations={data.recreations ?? []} /> : null}
         </div>
       </div>
 
       <Card className="mb-4 border-white/8 bg-card/80 shadow-none">
         <CardHeader><CardTitle className="text-lg">{t("原始内容", "Original post")}</CardTitle><CardDescription>{t("来自 TikTok 的真实帖子；平台限制播放时可打开原始链接。", "The real TikTok post; open the original link if playback is blocked.")}</CardDescription></CardHeader>
-        <CardContent>{post.postType === "video" && post.mediaUrl && !playbackFailed ? <video className="mx-auto max-h-[650px] w-full max-w-[430px] rounded-lg bg-black" controls playsInline preload="metadata" poster={post.thumbnailUrl ?? undefined} src={post.mediaUrl} onError={() => setPlaybackFailed(true)} aria-label={t("原始视频", "Original video")} /> : videoId ? (showEmbed
+        <CardContent>{post.postType === "photo" && frames.length ? (
+          // A carousel's images are already stored with the analysis: show them instead of loading the TikTok player.
+          <div className="flex snap-x gap-3 overflow-x-auto pb-2">{frames.map((frame, index) => <a className="w-[260px] shrink-0 snap-start" href={frame} key={frame} rel="noreferrer" target="_blank"><img alt={t(`第 ${index + 1} 张`, `Image ${index + 1}`)} className="w-full rounded-lg border border-white/10 bg-black" loading="lazy" src={frame} /></a>)}</div>
+        ) : post.postType === "video" && post.mediaUrl && !playbackFailed ? <video className="mx-auto max-h-[650px] w-full max-w-[430px] rounded-lg bg-black" controls playsInline preload="metadata" poster={post.thumbnailUrl ?? undefined} src={post.mediaUrl} onError={() => setPlaybackFailed(true)} aria-label={t("原始视频", "Original video")} /> : videoId ? (showEmbed
           ? <iframe className="mx-auto h-[650px] w-full max-w-[370px] rounded-lg border-0 bg-black" src={`https://www.tiktok.com/player/v1/${videoId}`} title={t("TikTok 原始内容", "Original TikTok post")} allow="fullscreen; encrypted-media" allowFullScreen />
           // The TikTok embed grabs focus and scrolls the page when it loads, so it only loads on request.
           : <button className="relative mx-auto grid h-[420px] w-full max-w-[260px] place-items-center overflow-hidden rounded-lg border border-white/10 bg-black" onClick={() => setShowEmbed(true)} type="button">{post.thumbnailUrl ? <img alt="" className="absolute inset-0 h-full w-full object-cover opacity-70" src={post.thumbnailUrl} /> : null}<span className="relative flex items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-sm"><Play className="size-4" />{t("加载 TikTok 播放器", "Load the TikTok player")}</span></button>) : <a className="text-primary underline" href={post.url} target="_blank" rel="noreferrer">{t("在 TikTok 打开原始内容", "Open the original on TikTok")}</a>}</CardContent>
@@ -155,7 +159,8 @@ export default function PostDetailPage() {
       <div className="mt-4"><PostAdsCard ads={post.ads} /></div>
       {evaluation ? <div className="mt-4"><EvaluationCard evaluation={evaluation} /></div> : null}
       <div className="mt-4"><AssessmentCard legacy={Boolean(evaluation)} market={post.market} prediction={prediction} /></div>
-      {data.recreations?.length ? <div className="mt-4"><RecreatePanel photo={post.postType === "photo"} recreations={data.recreations} /></div> : null}
+      {data.recreations?.some((item) => item.kind === "copy") ? <div className="mt-4"><RecreatePanel mode="copy" recreations={data.recreations} /></div> : null}
+      {data.recreations?.some((item) => item.kind !== "copy") ? <div className="mt-4"><RecreatePanel mode="recreate" recreations={data.recreations} /></div> : null}
 
       <section className="mt-4 grid items-start gap-4 xl:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)]">
         <Card className="border-white/8 bg-card/80 shadow-none">

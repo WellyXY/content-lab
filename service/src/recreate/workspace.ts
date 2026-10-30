@@ -51,7 +51,6 @@ export async function prepareRecreateWorkspace(
   const loadPost = () => db.prepare("SELECT id, type, media_url, image_urls_json, duration_s, market, caption FROM posts WHERE id=?").get(input.postId) as WorkspacePost | undefined;
   let post = loadPost();
   if (!post) throw new SourceUnavailableError(`Unknown post ${input.postId}`);
-  if (post.type === "photo") throw new SourceUnavailableError("Carousel posts cannot be recreated yet");
   let prepared: PreparedMedia;
   try {
     prepared = await prepareMedia(config.mediaDir, post);
@@ -72,21 +71,46 @@ export async function prepareRecreateWorkspace(
     }
   }
   const postDir = join(config.mediaDir, post.id);
-  cpSync(join(postDir, "source.mp4"), join(dir, "assets", "source.mp4"));
+  let sourceDurationS = prepared.facts.durationS ?? post.duration_s ?? 0;
+  let carousel: RecreateInputs["carousel"];
+  if (post.type === "photo") {
+    // A carousel becomes a silent slideshow the motion designer can cut, reorder and animate.
+    const images = prepared.frames.map((frame) => join(postDir, frame.file));
+    if (!images.length) throw new SourceUnavailableError("The carousel has no images");
+    await carouselSlideshow(images, join(dir, "assets", "source.mp4"));
+    sourceDurationS = images.length * slideSeconds(images.length);
+    carousel = { images: images.length, secondsEach: slideSeconds(images.length) };
+  } else {
+    cpSync(join(postDir, "source.mp4"), join(dir, "assets", "source.mp4"));
+  }
   for (const frame of prepared.frames) cpSync(join(postDir, frame.file), join(dir, "assets", "frames", frame.file));
   cpSync(join(REPO_ROOT, "brand", "popup"), join(dir, "brand"), { recursive: true });
   for (const skill of RECREATE_SKILLS) {
     const source = join(homedir(), ".claude", "skills", skill);
     if (existsSync(source)) cpSync(source, join(dir, ".claude", "skills", skill), { recursive: true });
   }
-  const sourceDurationS = prepared.facts.durationS ?? post.duration_s ?? 0;
-  writeFileSync(join(dir, "brief.md"), buildRecreateBrief(await collectInputs(db, config, post, sourceDurationS, postDir)));
+  writeFileSync(join(dir, "brief.md"), buildRecreateBrief({ ...await collectInputs(db, config, post, sourceDurationS, postDir), ...(carousel ? { carousel } : {}) }));
   return { dir, sourceDurationS };
 }
 
 export const SERVICE_MODULES = join(REPO_ROOT, "service", "node_modules");
 export const HYPERFRAMES_BIN = join(SERVICE_MODULES, ".bin", "hyperframes");
 export const HYPERFRAMES_ENV = { HYPERFRAMES_TELEMETRY: "0", HYPERFRAMES_SKIP_SKILLS: "1", DO_NOT_TRACK: "1" };
+
+/** Seconds each carousel image is shown in the slideshow source; a short carousel still lasts MIN_SLIDESHOW_SECONDS (renders must last 5 s). */
+export const SLIDE_SECONDS = 3;
+const MIN_SLIDESHOW_SECONDS = 6;
+export const slideSeconds = (images: number): number => Math.max(SLIDE_SECONDS, MIN_SLIDESHOW_SECONDS / Math.max(1, images));
+
+/** Images as a 1080x1920 slideshow (letterboxed, SLIDE_SECONDS each) with a silent audio track, so the pipeline treats it like a video. */
+export async function carouselSlideshow(images: string[], output: string): Promise<void> {
+  const seconds = slideSeconds(images.length);
+  const inputs = images.flatMap((image) => ["-loop", "1", "-t", String(seconds), "-i", image]);
+  const scaled = images.map((_, index) => `[${index}:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30[v${index}]`).join(";");
+  const filter = `${scaled};${images.map((_, index) => `[v${index}]`).join("")}concat=n=${images.length}:v=1:a=0[v]`;
+  await execFileAsync("ffmpeg", ["-v", "error", "-y", ...inputs, "-f", "lavfi", "-t", String(images.length * seconds), "-i", "anullsrc=r=44100:cl=stereo",
+    "-filter_complex", filter, "-map", "[v]", "-map", `${images.length}:a`, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", output], { timeout: 120_000 });
+}
 
 async function initHyperframes(dir: string): Promise<void> {
   await execFileAsync(HYPERFRAMES_BIN, ["init", ".", "--non-interactive", "--resolution", "portrait", "--skip-transcribe"], { cwd: dir, timeout: 120_000, env: { ...childEnvironment(), ...HYPERFRAMES_ENV } });
