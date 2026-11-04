@@ -34,8 +34,8 @@ export function createProxyGuard(call: PlannedCall): (tool: string, input: Recor
 
 type StreamMessage = { type: string; message?: { content?: unknown } };
 
-/** Where the CLI saves tool results that exceed its output limit. */
-export const SAVED_RESULTS_ROOT = join(homedir(), ".claude", "projects");
+/** Where the CLI saves tool results that exceed its output limit: under its config folder, which the worker may set to its own login. */
+export const savedResultsRoot = (env: NodeJS.ProcessEnv = process.env): string => join(env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "projects");
 const SAVED_NOTE = /^Error: result \([\d,]+ characters[^)]*\) exceeds maximum allowed tokens\. Output has been saved to (\S+?)\.\s/;
 
 /** A result too large for the CLI arrives as a note pointing at the saved file; read the raw output from there. */
@@ -49,7 +49,7 @@ function savedResult(text: string, root: string): string | null {
 }
 
 /** The raw TikTok response of the planned tool, taken from the tool result itself; the model's own reply is ignored. */
-export function extractToolResult(messages: readonly StreamMessage[], tool: string, savedRoot = SAVED_RESULTS_ROOT): unknown {
+export function extractToolResult(messages: readonly StreamMessage[], tool: string, savedRoot = savedResultsRoot()): unknown {
   const ids = new Set<string>();
   for (const message of messages) {
     if (message.type !== "assistant" || !Array.isArray(message.message?.content)) continue;

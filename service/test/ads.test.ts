@@ -217,3 +217,13 @@ describe("ads delivery to the site", () => {
     void post;
   });
 });
+
+import { homedir } from "node:os";
+import { savedResultsRoot } from "../src/ads/proxy.js";
+
+describe("saved tool results", () => {
+  it("are looked for under the worker's own Claude config folder when it has one", () => {
+    expect(savedResultsRoot({})).toBe(`${homedir()}/.claude/projects`);
+    expect(savedResultsRoot({ CLAUDE_CONFIG_DIR: "/x/.claude-content-lab" })).toBe("/x/.claude-content-lab/projects");
+  });
+});
