@@ -177,13 +177,14 @@ describe("copying a carousel with rewritten text", () => {
   });
 });
 
-import { rewritePrompt } from "../src/copy/rewrite.js";
+import { rewriteCarousel, rewritePrompt, textSimilarity, tooSimilar } from "../src/copy/rewrite.js";
 import { renderHtml } from "../src/copy/render.js";
 
 describe("the text session", () => {
   it("asks for the same story in new words, keeps the app's own labels and names which pages to build", () => {
     const prompt = rewritePrompt({ market: "TH", images: [{ index: 1, kind: "photo", width: 1080, height: 1426 }, { index: 2, kind: "screenshot", width: 1080, height: 796 }] });
-    expect(prompt).toContain("SAME story with DIFFERENT wording");
+    expect(prompt).toContain("SAME story with DIFFERENT and BETTER wording");
+    expect(prompt).toContain("Do not just swap a word or two");
     expect(prompt).toContain("Do NOT change the app's own interface text");
     expect(prompt).toContain("overlay-01.html");
     expect(prompt).toContain("screen-02.html");
@@ -197,5 +198,37 @@ describe("the text session", () => {
     const layer = await readRgba(join(dir, "p.png"), { width: 100, height: 80 });
     expect([...layer.data.subarray(0, 4)]).toEqual([255, 0, 0, 255]);
     expect(layer.data[(50 * 100 + 90) * 4 + 3]).toBe(0);
+  });
+});
+
+describe("rewrites that barely change", () => {
+  it("are measured on the words, and short reactions may stay", () => {
+    expect(textSimilarity("getting so much reassurance without asking", "getting that much reassurance without asking")).toBeGreaterThan(0.7);
+    expect(textSimilarity("getting so much reassurance without asking", "he just knows when I need to hear it")).toBeLessThan(0.4);
+    expect(tooSimilar([
+      { image: 1, original: "getting so much reassurance without asking", rewritten: "getting that much reassurance without asking" },
+      { image: 1, original: "getting so much reassurance without asking", rewritten: "he just knows when I need to hear it" },
+      { image: 1, original: "27", rewritten: "27" },
+    ])).toHaveLength(1);
+  });
+
+  it("go back to the session once with the lines that barely changed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rewrite-"));
+    const source = join(dir, "s.jpg");
+    await writeJpeg(source, sample());
+    const prompts: string[] = [];
+    const answers = [
+      [{ image: 1, original: "getting so much reassurance without asking", rewritten: "getting that much reassurance without asking" }],
+      [{ image: 1, original: "getting so much reassurance without asking", rewritten: "he just knows when I need to hear it" }],
+    ];
+    const work = join(dir, "text");
+    const { rewrites } = await rewriteCarousel(work, [source], [{ index: 1, kind: "photo", width: 100, height: 80 }], {
+      market: "PH", context: "Story: a reassuring match",
+      session: async (_dir, _images, prompt) => { prompts.push(prompt); writeFileSync(join(work, "rewrite.json"), JSON.stringify(answers[prompts.length - 1])); },
+    });
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0]).toContain("Story: a reassuring match");
+    expect(prompts[1]).toContain("these lines barely changed");
+    expect(rewrites[0]!.rewritten).toBe("he just knows when I need to hear it");
   });
 });

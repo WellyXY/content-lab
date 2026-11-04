@@ -35,6 +35,23 @@ export interface ImageCopyDeps {
   rewrite?: typeof rewriteCarousel;
 }
 
+/** What the analysis and the knowledge base evaluation say about the post, to steer the rewrite. */
+export function postContext(db: ContentLabDatabase, postId: string): string | null {
+  const feature = db.prepare("SELECT summary_zh, analysis_json FROM post_features WHERE post_id=? ORDER BY version DESC LIMIT 1").get(postId) as { summary_zh: string | null; analysis_json: string } | undefined;
+  const evaluation = db.prepare("SELECT inputs_json FROM predictions WHERE post_id=? AND id LIKE 'eval-%' ORDER BY made_at DESC LIMIT 1").get(postId) as { inputs_json: string } | undefined;
+  const analysis = feature ? JSON.parse(feature.analysis_json) as { formula_en?: string; formula_zh?: string; summary_en?: string } : null;
+  const judged = evaluation ? JSON.parse(evaluation.inputs_json) as { motivation?: { desire_en?: string; first_person_thought_en?: string; entertainment_gap_en?: string }; diagnosis?: { barriers?: Array<{ en?: string }> } } : null;
+  const lines = [
+    analysis?.summary_en ?? feature?.summary_zh ? `Story: ${analysis?.summary_en ?? feature?.summary_zh}` : "",
+    analysis?.formula_en ?? analysis?.formula_zh ? `Formula: ${analysis?.formula_en ?? analysis?.formula_zh}` : "",
+    judged?.motivation?.desire_en ? `What the viewer wants: ${judged.motivation.desire_en}` : "",
+    judged?.motivation?.first_person_thought_en ? `The viewer's likely thought: ${judged.motivation.first_person_thought_en}` : "",
+    judged?.motivation?.entertainment_gap_en ? `Gap between enjoying it and wanting the app: ${judged.motivation.entertainment_gap_en}` : "",
+    judged?.diagnosis?.barriers?.length ? `Weak spots: ${judged.diagnosis.barriers.map((item) => item.en).filter(Boolean).join("; ")}` : "",
+  ].filter(Boolean);
+  return lines.length ? lines.join("\n") : null;
+}
+
 async function pool<T>(items: T[], size: number, work: (item: T) => Promise<void>): Promise<void> {
   const queue = [...items];
   await Promise.all(Array.from({ length: Math.min(size, queue.length) }, async () => { for (let item = queue.shift(); item !== undefined; item = queue.shift()) await work(item); }));
@@ -67,7 +84,7 @@ export async function runImageCopy(
     save("designing");
     const sizes = await Promise.all(sources.map((source) => imageSize(source)));
     // The text is rewritten once for the whole carousel, while the photos are being reshot; if it fails the original text is kept.
-    const rewriting = (deps.rewrite ?? rewriteCarousel)(join(dir, "text"), sources, layouts.map((layout) => ({ index: layout.index, kind: layout.kind, ...sizes[layout.index - 1]! })), { market: post.market, model: config.codexModel })
+    const rewriting = (deps.rewrite ?? rewriteCarousel)(join(dir, "text"), sources, layouts.map((layout) => ({ index: layout.index, kind: layout.kind, ...sizes[layout.index - 1]! })), { market: post.market, context: postContext(db, post.id), model: config.codexModel })
       .catch(() => ({ pages: new Map<number, RewrittenImage>(), rewrites: [] as Rewrite[] }));
     const generated = new Map<string, string>();
     const tasks = layouts.filter((layout) => layout.kind === "photo").flatMap((layout) => Array.from({ length: VARIANTS_PER_IMAGE }, (_, v) => ({ layout, variant: v + 1 })));
