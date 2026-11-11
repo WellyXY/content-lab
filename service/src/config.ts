@@ -19,6 +19,12 @@ export interface ServiceConfig {
   feishuAlertOpenId: string | null;
   feishuAllowedSenderIds: string[];
   feishuAllowedChatIds: string[];
+  /** Post the daily update (standouts, carousel copies, a Feishu document) every day at 11:00 Taipei. */
+  dailyDigest: boolean;
+  /** The group that gets the daily update: CONTENT_LAB_DIGEST_CHAT_ID, else the first allowed group; null sends it to the owner. */
+  digestChatId: string | null;
+  /** Host of the organization's Feishu, for document links (e.g. acme.feishu.cn). */
+  feishuDocHost: string;
   feishuBotLockPath: string;
   feishuWebhookUrl: string | null;
   siteSyncUrl: string | null;
@@ -86,6 +92,9 @@ export function loadConfig(): ServiceConfig {
     feishuAlertOpenId: optional("FEISHU_ALERT_OPEN_ID"),
     feishuAllowedSenderIds: list("FEISHU_ALLOWED_SENDER_IDS"),
     feishuAllowedChatIds: list("FEISHU_ALLOWED_CHAT_IDS"),
+    dailyDigest: optional("CONTENT_LAB_DAILY_DIGEST") === "1",
+    digestChatId: optional("CONTENT_LAB_DIGEST_CHAT_ID") ?? list("FEISHU_ALLOWED_CHAT_IDS")[0] ?? null,
+    feishuDocHost: optional("FEISHU_DOC_HOST") ?? "feishu.cn",
     feishuBotLockPath: resolve(process.env.FEISHU_BOT_LOCK || resolve(dirname(dbPath), "feishu-bot.lock")),
     feishuWebhookUrl: optional("FEISHU_WEBHOOK_URL"),
     siteSyncUrl: optional("SITE_SYNC_URL")?.replace(/\/$/, "") ?? null,

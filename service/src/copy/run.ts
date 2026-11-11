@@ -63,15 +63,15 @@ async function pool<T>(items: T[], size: number, work: (item: T) => Promise<void
  */
 export async function runImageCopy(
   db: ContentLabDatabase, config: ServiceConfig,
-  input: { recreationId: string; sitePostId: string; finalAttempt?: boolean }, deps: ImageCopyDeps,
+  input: { recreationId: string; sitePostId: string; finalAttempt?: boolean; /** 0 keeps an automatic copy from using up the post's manual attempts. */ counts?: number }, deps: ImageCopyDeps,
 ): Promise<void> {
   const post = db.prepare("SELECT id, market FROM posts WHERE site_post_id=? OR id=? LIMIT 1").get(input.sitePostId, input.sitePostId) as { id: string; market: string | null } | undefined;
-  const save = (status: Status, fields: SaveFields = {}) => saveRecreation(db, { id: input.recreationId, postId: post?.id ?? input.sitePostId, sitePostId: input.sitePostId }, status, fields);
+  const save = (status: Status, fields: SaveFields = {}) => saveRecreation(db, { id: input.recreationId, postId: post?.id ?? input.sitePostId, sitePostId: input.sitePostId }, status, { kind: "copy", ...fields });
   if (!post) { save("failed", { error: "post_not_tracked", counts: 0 }); return; }
   if (!RECREATION_ID.test(input.recreationId)) throw new Error("Invalid recreation id");
   const dir = resolve(config.mediaDir, "..", "recreate", input.recreationId);
   try {
-    save("preparing");
+    save("preparing", input.counts === undefined ? {} : { counts: input.counts });
     const mediaDir = join(config.mediaDir, post.id);
     const list = () => existsSync(mediaDir) ? readdirSync(mediaDir).filter((file) => /^img-\d+\.jpg$/.test(file)).sort().map((file) => join(mediaDir, file)) : [];
     if (!list().length) await deps.refresh?.(post.id);

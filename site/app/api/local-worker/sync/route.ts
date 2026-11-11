@@ -88,12 +88,14 @@ async function syncRecreation(db: D1Database, event: SyncEvent) {
   const postId = nullableString(pick(payload, "postId"));
   if (!postId) throw new Error("recreation.postId is required");
   const now = new Date().toISOString();
-  await db.prepare(`INSERT INTO recreations (id, post_id, status, notes_json, video_url, cover_url, error, counts, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  // A copy the worker started itself (the daily update) arrives with its kind; rows the Site created keep theirs.
+  const kind = pick(payload, "kind") === "copy" ? "copy" : "recreate";
+  await db.prepare(`INSERT INTO recreations (id, post_id, kind, status, notes_json, video_url, cover_url, error, counts, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET status = excluded.status, notes_json = COALESCE(excluded.notes_json, recreations.notes_json),
       video_url = COALESCE(excluded.video_url, recreations.video_url), cover_url = COALESCE(excluded.cover_url, recreations.cover_url),
       error = excluded.error, counts = excluded.counts, updated_at = excluded.updated_at`)
-    .bind(id, postId, String(pick(payload, "status") ?? "queued"), nullableString(pick(payload, "notesJson")), nullableString(pick(payload, "videoUrl")),
+    .bind(id, postId, kind, String(pick(payload, "status") ?? "queued"), nullableString(pick(payload, "notesJson")), nullableString(pick(payload, "videoUrl")),
       nullableString(pick(payload, "coverUrl")), nullableString(pick(payload, "error")), Number(pick(payload, "counts") ?? 1), now, now).run();
 }
 

@@ -63,7 +63,7 @@ export function postDetail(db: ContentLabDatabase, id: string): Record<string, u
   const tags = features ? Object.fromEntries(Object.entries(JSON.parse(features.tags_json) as Record<string, { value: unknown }>).map(([key, decision]) => [key, decision.value])) : {};
   return {
     id, siteId: post.site_post_id, url: post.url, market: post.market, creator: post.creator, type: post.type,
-    caption: post.caption, publishedAt: post.published_at, boundAt: post.bound_at, trackingState: post.tracking_state,
+    caption: post.caption, publishedAt: post.published_at, boundAt: post.bound_at, trackingState: post.tracking_state, stopReason: post.stop_reason ?? null,
     latest, checkpoints: post.checkpoints_json ? JSON.parse(String(post.checkpoints_json)) : [],
     ads: post.ads_json ? JSON.parse(String(post.ads_json)) : null,
     analysisVersion: features?.version ?? null, tags, computed: analysis.computed ?? null,

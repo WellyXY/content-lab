@@ -17,7 +17,7 @@ export interface RecreateDeps {
 }
 
 export type Status = "queued" | "preparing" | "designing" | "rendering" | "complete" | "failed";
-export type SaveFields = { notes?: RecreateNotes | ImageCopyNotes; videoUrl?: string; coverUrl?: string; error?: string; counts?: number };
+export type SaveFields = { /** Told to the Site so a copy the worker started itself is listed with the copies. */ kind?: "copy" | "recreate"; notes?: RecreateNotes | ImageCopyNotes; videoUrl?: string; coverUrl?: string; error?: string; counts?: number };
 
 /** Persist a recreation's status and queue the matching Site event. */
 export function saveRecreation(db: ContentLabDatabase, ids: { id: string; postId: string; sitePostId: string }, status: Status, fields: SaveFields = {}): void {
@@ -28,7 +28,7 @@ export function saveRecreation(db: ContentLabDatabase, ids: { id: string; postId
     finished_at=CASE WHEN ? IN ('complete','failed') THEN ? ELSE NULL END WHERE id=?`)
     .run(fields.notes ? JSON.stringify(fields.notes) : null, fields.videoUrl ?? null, fields.coverUrl ?? null, fields.error ?? null, fields.counts ?? null, status, at, ids.id);
   const row = db.prepare("SELECT * FROM recreations WHERE id=?").get(ids.id) as Record<string, unknown>;
-  putSyncEvent(db, "recreation", ids.id, { id: ids.id, postId: ids.sitePostId, status, notesJson: row.notes_json, videoUrl: row.video_url, coverUrl: row.cover_url, error: row.error, counts: row.counts, updatedAt: at }, at);
+  putSyncEvent(db, "recreation", ids.id, { id: ids.id, postId: ids.sitePostId, ...(fields.kind ? { kind: fields.kind } : {}), status, notesJson: row.notes_json, videoUrl: row.video_url, coverUrl: row.cover_url, error: row.error, counts: row.counts, updatedAt: at }, at);
 }
 
 /**

@@ -80,6 +80,12 @@ export class TikTokProvider implements MetricsProvider {
         return { ...fallback, fallbackReason: primaryError instanceof Error ? primaryError.message : String(primaryError) };
       } catch (fallbackError) {
         if (primaryError instanceof ProviderError && primaryError.unavailableReason === "private_or_deleted") throw primaryError;
+        // TikWM cannot resolve the link and TikTok's own embed has no title or author (or rejects it): the post is private, under review or deleted.
+        const unresolved = primaryError instanceof Error && /url parsing is failed/i.test(primaryError.message);
+        const noEmbed = fallbackError instanceof ProviderError && (fallbackError.unavailableReason === "invalid_response" || /oEmbed returned 400/.test(fallbackError.message));
+        if (unresolved && noEmbed) {
+          throw new ProviderError("Post is no longer publicly available on TikTok (private, under review or deleted)", { retryable: true, unavailableReason: "likely_removed", cause: fallbackError });
+        }
         throw new ProviderError("TikWM and TikTok oEmbed both failed", {
           retryable: true, unavailableReason: "upstream", cause: fallbackError,
         });

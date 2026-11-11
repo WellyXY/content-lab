@@ -58,6 +58,8 @@ export interface ContentLabFeishuBot {
   identity: () => { openId: string; name: string } | null;
   /** Direct message to the owner; a no-op without one. */
   notifyOwner: (text: string) => Promise<void>;
+  /** Text to a group the bot is allowed in; any other chat is refused. */
+  notifyChat: (chatId: string, text: string) => Promise<void>;
   alertTransport: FeishuAlertTransport | null;
 }
 
@@ -342,6 +344,11 @@ export function createContentLabFeishuBot(options: ContentLabFeishuBotOptions): 
       if (!request) return;
       const response = await channel.rawClient.im.v1.message.create(request);
       assertFeishuSuccess(response, "Feishu owner notification");
+    },
+    notifyChat: async (chatId: string, text: string) => {
+      if (!options.allowedChatIds.includes(chatId)) throw new Error("This chat is not on the bot's group allowlist");
+      const response = await channel.rawClient.im.v1.message.create({ params: { receive_id_type: "chat_id" }, data: { receive_id: chatId, msg_type: "text", content: JSON.stringify({ text }) } });
+      assertFeishuSuccess(response, "Feishu group message");
     },
   };
 }

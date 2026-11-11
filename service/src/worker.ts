@@ -8,12 +8,14 @@ import { prepareMedia } from "./analyzer/media.js";
 import { assessPost, generatePlaybook, marketsDueForPlaybook, playbookJobKey, postsAwaitingAssessment } from "./analyzer/playbook.js";
 import { capturePost, ingestPost, recordCodexAuthAlert, refreshPostMetadata, syncPostReadModel } from "./collector.js";
 import { loadConfig } from "./config.js";
-import { runImageCopy } from "./copy/run.js";
+import { runImageCopy, type ImageCopyNotes } from "./copy/run.js";
 import { openDatabase, type ContentLabDatabase } from "./db/database.js";
 import { normalizeTikTokPostUrl } from "./domain/tiktok-url.js";
 import { createContentLabFeishuBot } from "./feishu/bot.js";
 import { createFeishuDocReader } from "./feishu/docs.js";
 import { loadSheetSyncs, runSheetSyncs, sheetSyncDue } from "./feishu/sheet-sync.js";
+import { createFeishuDocWriter } from "./digest/doc.js";
+import { digestDue, runDailyDigest } from "./digest/run.js";
 import { createFeishuWebhookTransport, deliverAlertOutbox, type FeishuAlertTransport } from "./feishu.js";
 import { completeJob, deferJob, enqueueJob, failJob, leaseJobs, type Job } from "./jobs/queue.js";
 import { TikTokProvider } from "./providers/tiktok.js";
@@ -99,6 +101,33 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
       const extra = (database.prepare("SELECT COUNT(*) AS count FROM jobs WHERE kind='ads_sync' AND idempotency_key LIKE 'ads_sync:continue:%' AND created_at >= ?").get(since) as { count: number }).count;
       if (extra < 4) enqueueJob(database, { kind: "ads_sync", payload: {}, idempotencyKey: `ads_sync:continue:${Date.now()}`, runAt: new Date(Date.now() + 5 * 60_000).toISOString(), maxAttempts: 2 });
     }
+    return;
+  }
+  if (job.kind === "daily_digest") {
+    if (!syncClient) throw new Error("The daily update needs site sync to publish copied images");
+    const client = syncClient;
+    const { target } = job.payload as { target?: "owner" | "group" };
+    const chatId = target === "owner" ? null : config.digestChatId;
+    const result = await runDailyDigest(database, config, {
+      copy: async (post, recreationId) => {
+        await runImageCopy(database, config, { recreationId, sitePostId: post.sitePostId ?? post.postId, finalAttempt: true, counts: 0 }, {
+          refresh: async (postId) => {
+            await refreshPostMetadata(database, provider, postId);
+            await prepareMedia(config.mediaDir, database.prepare("SELECT * FROM posts WHERE id=?").get(postId) as unknown as Parameters<typeof prepareMedia>[1]);
+          },
+          // The Site must know the recreation before it accepts its files.
+          upload: async (id, filename, path, contentType) => { await pushPendingEvents(); return client.uploadRecreationFile(id, filename, path, contentType); },
+        });
+        const row = database.prepare("SELECT status, notes_json FROM recreations WHERE id=?").get(recreationId) as { status: string; notes_json: string | null } | undefined;
+        return row?.status === "complete" && row.notes_json ? JSON.parse(row.notes_json) as ImageCopyNotes : null;
+      },
+      writer: config.feishuAppId && config.feishuAppSecret ? createFeishuDocWriter(config.feishuAppId, config.feishuAppSecret, { host: config.feishuDocHost }) : null,
+      send: async (text) => {
+        if (!feishuBot) throw new Error("The daily update needs the Feishu bot");
+        if (chatId) await feishuBot.notifyChat(chatId, text); else await feishuBot.notifyOwner(text);
+      },
+    });
+    log("daily_digest_sent", { ...result, target: chatId ? "group" : "owner" });
     return;
   }
   if (job.kind === "sheet_sync") {
@@ -267,7 +296,7 @@ function startAnalyses(): void {
     }
   }
   if (!recreateRunning) {
-    const recreate = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: RECREATE_LEASE_MS, kinds: ["recreate"] })[0];
+    const recreate = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: RECREATE_LEASE_MS, kinds: ["recreate", "daily_digest"] })[0];
     if (recreate) {
       recreateRunning = true;
       void handleJob(recreate).finally(() => { recreateRunning = false; });
@@ -289,6 +318,8 @@ export async function runWorkerCycle(): Promise<void> {
   log("scheduler_cycle", { ...runSchedulerCycle(db) });
   const pending = drainPendingBinds(db, config);
   if (pending.queued) log("pending_binds_queued", pending);
+  const digestKey = digestDue(new Date());
+  if (digestKey && config.dailyDigest) enqueueJob(db, { kind: "daily_digest", payload: { target: "group" }, idempotencyKey: digestKey, maxAttempts: 2 });
   const sheetKey = sheetSyncDue(new Date());
   if (sheetKey) enqueueJob(db, { kind: "sheet_sync", payload: {}, idempotencyKey: sheetKey, maxAttempts: 2 });
   enqueueJob(db, { kind: "ads_sync", payload: {}, idempotencyKey: adsSyncDue(new Date()), maxAttempts: 2 });
@@ -303,7 +334,7 @@ export async function runWorkerCycle(): Promise<void> {
   await pushPendingEvents();
   startAnalyses();
   for (let processed = 0; processed < 20; processed += 1) {
-    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, excludeKinds: [...MODEL_JOB_KINDS, "recreate", "ads_sync"] })[0];
+    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, excludeKinds: [...MODEL_JOB_KINDS, "recreate", "daily_digest", "ads_sync"] })[0];
     if (!job) break;
     await handleJob(job);
     // An ingest enqueues its analysis; start it right away.

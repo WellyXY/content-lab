@@ -23,7 +23,7 @@ export const postReadModel = (db: ContentLabDatabase, id: string): Record<string
       p.type, p.duration_s AS durationS, p.caption, p.music_title AS musicTitle,
       p.cover_url AS coverUrl, p.media_url AS mediaUrl, p.published_at AS publishedAt, p.bound_at AS boundAt,
       p.bound_by AS boundBy,
-      p.tracking_state AS trackingState, p.next_capture_at AS nextCaptureAt,
+      p.tracking_state AS trackingState, p.stop_reason AS stopReason, p.next_capture_at AS nextCaptureAt,
       p.features_state AS featuresState, p.checkpoints_json AS checkpointsJson, p.ads_json AS adsJson, c.handle AS creator
     FROM posts p LEFT JOIN creators c ON c.id=p.creator_id WHERE p.id=?
   `).get(id) as Record<string, unknown> | undefined;
@@ -303,6 +303,9 @@ export async function ingestPost(
   }
 }
 
+/** How long a post must be invisible to every source before tracking stops. */
+export const REMOVED_AFTER_MS = 24 * 3_600_000;
+
 export async function capturePost(
   db: ContentLabDatabase,
   provider: MetricsProvider,
@@ -327,7 +330,10 @@ export async function capturePost(
     if (!result.metrics) throw new ProviderError("Metrics unavailable; metadata was refreshed from oEmbed", { retryable: true, unavailableReason: "upstream" });
   } catch (error) {
     if (error instanceof ProviderError && error.message.startsWith("Metrics unavailable")) throw error;
-    const terminal = error instanceof ProviderError && error.unavailableReason === "private_or_deleted";
+    // A post no source can see stops being tracked once it has been unavailable for a day; a single failed check is retried.
+    const lastSeen = (db.prepare("SELECT MAX(captured_at) AS at FROM metric_snapshots WHERE post_id=? AND ok=1").get(post.id) as { at: string | null }).at ?? post.bound_at;
+    const goneForADay = error instanceof ProviderError && error.unavailableReason === "likely_removed" && Date.parse(now) - Date.parse(lastSeen) >= REMOVED_AFTER_MS;
+    const terminal = goneForADay || (error instanceof ProviderError && error.unavailableReason === "private_or_deleted");
     db.exec("BEGIN IMMEDIATE");
     try {
       recordUnavailable(db, post, "tikwm", error instanceof Error ? error.message : String(error), { terminal }, now);

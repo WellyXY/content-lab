@@ -35,7 +35,8 @@ export interface MetricsProvider {
 
 export class ProviderError extends Error {
   readonly retryable: boolean;
-  readonly unavailableReason: "private_or_deleted" | "rate_limited" | "upstream" | "invalid_response";
+  /** "likely_removed": no source can see the post any more (private, under review or deleted), but one failed check is not proof. */
+  readonly unavailableReason: "private_or_deleted" | "likely_removed" | "rate_limited" | "upstream" | "invalid_response";
 
   constructor(message: string, options: { retryable: boolean; unavailableReason: ProviderError["unavailableReason"]; cause?: unknown }) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
