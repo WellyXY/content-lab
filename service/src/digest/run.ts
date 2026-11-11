@@ -128,7 +128,8 @@ export async function runDailyDigest(db: ContentLabDatabase, config: { mediaDir:
   const failedCopies: Standout[] = [];
   // Today's top photo carousels by views gained, each copied once: a carousel with a finished copy is not copied again.
   // A retry the same day reuses the copies it already made.
-  const made = db.prepare("SELECT post_id, id, notes_json FROM recreations WHERE id LIKE ? AND status='complete'").all(`digest-${date}-%`) as Array<{ post_id: string; id: string; notes_json: string }>;
+  // Only versioned copies count: an older copy without videos is made again.
+  const made = db.prepare("SELECT post_id, id, notes_json FROM recreations WHERE id LIKE ? AND status='complete' AND notes_json LIKE '%\"versions\":[{%'").all(`digest-${date}-%`) as Array<{ post_id: string; id: string; notes_json: string }>;
   for (const row of made) {
     const post = describePhoto(db, row.post_id, now);
     if (post) copies.push({ post, recreationId: row.id, notes: JSON.parse(row.notes_json) as ImageCopyNotes });
