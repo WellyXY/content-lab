@@ -8,6 +8,7 @@ import { prepareMedia } from "./analyzer/media.js";
 import { assessPost, generatePlaybook, marketsDueForPlaybook, playbookJobKey, postsAwaitingAssessment } from "./analyzer/playbook.js";
 import { capturePost, ingestPost, recordCodexAuthAlert, refreshPostMetadata, syncPostReadModel } from "./collector.js";
 import { loadConfig } from "./config.js";
+import { downloadPostMusic } from "./copy/music.js";
 import { runImageCopy, type ImageCopyNotes } from "./copy/run.js";
 import { openDatabase, type ContentLabDatabase } from "./db/database.js";
 import { normalizeTikTokPostUrl } from "./domain/tiktok-url.js";
@@ -111,6 +112,7 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
     const result = await runDailyDigest(database, config, {
       copy: async (post, recreationId) => {
         await runImageCopy(database, config, { recreationId, sitePostId: post.sitePostId ?? post.postId, finalAttempt: true, counts: 0 }, {
+          music: (postId, dest) => downloadPostMusic(database, provider, postId, dest),
           refresh: async (postId) => {
             await refreshPostMetadata(database, provider, postId);
             await prepareMedia(config.mediaDir, database.prepare("SELECT * FROM posts WHERE id=?").get(postId) as unknown as Parameters<typeof prepareMedia>[1]);
@@ -126,6 +128,7 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
         if (!feishuBot) throw new Error("The daily update needs the Feishu bot");
         if (chatId) await feishuBot.notifyChat(chatId, text); else await feishuBot.notifyOwner(text);
       },
+      record: chatId !== null,
     });
     log("daily_digest_sent", { ...result, target: chatId ? "group" : "owner" });
     return;
@@ -150,6 +153,7 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
     if (mode === "copy" || (!mode && target?.type === "photo")) {
       // Photo carousels are copied (new person, outfit and place; original text and UI kept), not re-edited.
       await runImageCopy(database, config, { recreationId, sitePostId, finalAttempt: job.attempts >= job.maxAttempts }, {
+        music: (postId, dest) => downloadPostMusic(database, provider, postId, dest),
         refresh: async (postId) => {
           await refreshPostMetadata(database, provider, postId);
           await prepareMedia(config.mediaDir, database.prepare("SELECT * FROM posts WHERE id=?").get(postId) as unknown as Parameters<typeof prepareMedia>[1]);

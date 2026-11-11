@@ -135,7 +135,7 @@ export class TikTokProvider implements MetricsProvider {
           metadata: {
             videoId, url: canonicalUrl, authorId: text(author.id), authorHandle: handle ?? text(author.nickname) ?? "unknown",
             caption: text(data.title) ?? "", type: isPhoto ? "photo" : "video", durationS: number(data.duration),
-            musicTitle: text(music.title), coverUrl: mediaUrl(data.cover), mediaUrl: isPhoto ? mediaUrl(images[0]) : mediaUrl(data.hdplay) ?? mediaUrl(data.play) ?? mediaUrl(data.wmplay),
+            musicTitle: text(music.title), musicUrl: mediaUrl(data.music) ?? mediaUrl(music.play), coverUrl: mediaUrl(data.cover), mediaUrl: isPhoto ? mediaUrl(images[0]) : mediaUrl(data.hdplay) ?? mediaUrl(data.play) ?? mediaUrl(data.wmplay),
             imageUrls: images.map(mediaUrl).filter((value): value is string => value !== null).slice(0, 35),
             publishedAt: createTime === null ? null : new Date(createTime * 1_000).toISOString(),
           },

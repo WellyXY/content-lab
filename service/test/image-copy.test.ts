@@ -87,9 +87,11 @@ describe("copying a carousel", () => {
       upload: async (_id, filename) => { uploads.push(filename); return `/media/recreations/rc1/${filename}`; },
       // The text session failed: the original text is kept.
       rewrite: async () => { throw new Error("codex failed"); },
+      // Without music the video is silent; the assembly itself is covered below.
+      video: async (_images, music, output) => { expect(music).toBeNull(); execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=c=black:s=1080x1920:d=1", "-frames:v", "1", "-f", "mp4", output]); return { durationS: 6 }; },
     });
     expect(prompts).toBe(2);
-    expect(uploads.sort()).toEqual(["img-01-0.jpg", "img-01-1.jpg", "img-02-0.jpg"]);
+    expect(uploads.sort()).toEqual(["img-01-0.jpg", "img-01-1.jpg", "img-02-0.jpg", "video.mp4"]);
     const row = db.prepare("SELECT status, notes_json FROM recreations WHERE id='rc1'").get() as { status: string; notes_json: string };
     expect(row.status).toBe("complete");
     const notes = JSON.parse(row.notes_json) as ImageCopyNotes;
@@ -160,13 +162,21 @@ describe("copying a carousel with rewritten text", () => {
         return { pages: new Map([[1, { overlay }], [2, { screen }], [3, {}]]), rewrites: [{ image: 2, original: "พี่น่ารักจัง", rewritten: "พี่ดูน่ารักจัง" }] };
       },
       upload: async (_id, filename) => { uploads.push(filename); return filename; },
+      music: async (_postId, dest) => { execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:a", "aac", dest]); return dest; },
     });
     expect(rewriteImages).toEqual([{ index: 1, kind: "photo", width: 100, height: 80 }, { index: 2, kind: "screenshot", width: 100, height: 80 }, { index: 3, kind: "screenshot", width: 100, height: 80 }]);
-    expect(uploads.sort()).toEqual(["img-01-0.jpg", "img-01-1.jpg", "img-01-2.jpg", "img-02-0.jpg", "img-02-1.jpg", "img-03-0.jpg"]);
+    expect(uploads.sort()).toEqual(["img-01-0.jpg", "img-01-1.jpg", "img-01-2.jpg", "img-02-0.jpg", "img-02-1.jpg", "img-03-0.jpg", "video-2.mp4", "video.mp4"]);
+    // One video per version: three images, nine seconds, with the post's music looped.
+    const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type,width,height:format=duration", "-of", "json", join(root, "recreate", "rc2", "video-2.mp4")], { encoding: "utf8" })) as { streams: Array<{ codec_type: string; width?: number; height?: number }>; format: { duration: string } };
+    expect(probe.streams.find((stream) => stream.codec_type === "video")).toMatchObject({ width: 1080, height: 1920 });
+    expect(probe.streams.some((stream) => stream.codec_type === "audio")).toBe(true);
+    expect(Number(probe.format.duration)).toBeCloseTo(9, 0);
     const notes = JSON.parse((db.prepare("SELECT notes_json FROM recreations WHERE id='rc2'").get() as { notes_json: string }).notes_json) as ImageCopyNotes;
     expect(notes.images.map((image) => [image.index, image.kept, image.variants.length])).toEqual([[1, false, 2], [2, false, 1], [3, true, 0]]);
     expect(notes.rewrites).toHaveLength(1);
     expect(notes.summary_zh).toContain("改写了 1 处");
+    expect(notes.videos).toEqual(["video.mp4", "video-2.mp4"]);
+    expect(notes.summary_zh).toContain("已合成 2 条视频，配原帖音乐");
     // Left half: the rebuilt caption layer (red); right half: the new grey photo, not the original text.
     const result = await readRgb(join(root, "recreate", "rc2", "img-01-1.jpg"));
     const pixel = (x: number, y: number) => [...result.data.subarray((y * 100 + x) * 3, (y * 100 + x) * 3 + 3)];
@@ -174,7 +184,7 @@ describe("copying a carousel with rewritten text", () => {
     expect(pixel(20, 15)[1]!).toBeLessThan(60);
     expect(Math.abs(pixel(80, 40)[0]! - 128)).toBeLessThan(12);
     db.close();
-  });
+  }, 60_000);
 });
 
 import { rewriteCarousel, rewritePrompt, textSimilarity, tooSimilar } from "../src/copy/rewrite.js";

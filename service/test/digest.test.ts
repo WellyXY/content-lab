@@ -5,7 +5,7 @@ import type { ImageCopyNotes } from "../src/copy/run.js";
 import { openDatabase } from "../src/db/database.js";
 import { itemBlock, type DocItem } from "../src/digest/doc.js";
 import { buildDigestMessage, digestDue, money, runDailyDigest } from "../src/digest/run.js";
-import { reportDate, selectStandouts } from "../src/digest/select.js";
+import { recentlyReported, reportDate, selectStandouts } from "../src/digest/select.js";
 
 const NOW = new Date("2026-11-11T03:00:00.000Z");
 
@@ -45,7 +45,7 @@ describe("today's standouts", () => {
 });
 
 describe("the daily update", () => {
-  const notes: ImageCopyNotes = { kind: "image_copy", summary_zh: "1 张照片各生成 2 个版本", summary_en: "", changes: [], rewrites: [{ image: 1, original: "a", rewritten: "b" }], images: [{ index: 1, kept: false, original: "o", variants: ["v1", "v2"], failed: 0 }] };
+  const notes: ImageCopyNotes = { kind: "image_copy", summary_zh: "1 张照片各生成 2 个版本", summary_en: "", changes: [], rewrites: [{ image: 1, original: "a", rewritten: "b" }], videos: ["/media/recreations/x/video.mp4", "/media/recreations/x/video-2.mp4"], music: true, images: [{ index: 1, kept: false, original: "o", variants: ["v1", "v2"], failed: 0 }] };
 
   it("copies each standout carousel once, writes the document and sends one message with program-made numbers", async () => {
     const { db, carousel } = seeded();
@@ -68,7 +68,8 @@ describe("the daily update", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]).toContain("有 3 条帖子表现突出");
     expect(sent[0]).toContain("@c1（ID 视频） 24 小时 +600,000 播放（累计 2,000,000）；信号：日增爆发；11-10 投放：301 注册，$0.40/注册，花费 $121.23");
-    expect(sent[0]).toContain("已为 1 条图文帖子生成复制版，共 2 张新图");
+    expect(sent[0]).toContain("已为 1 条图文帖子生成复制版，共 2 张新图、2 条配原帖音乐的视频");
+    expect(JSON.stringify(doc!.items)).toContain("版本 2 下载");
     expect(sent[0]).toContain("https://acme.feishu.cn/docx/Doc1");
     const text = JSON.stringify(doc!.items);
     expect(text).toContain("https://lab.example/posts/");
@@ -77,6 +78,13 @@ describe("the daily update", () => {
     // A retry the same day reuses the finished copy.
     await runDailyDigest(db, { mediaDir: "/nonexistent/media", siteSyncUrl: null }, deps, NOW);
     expect(copied).toHaveLength(1);
+
+    // Once the group has been told, the same posts are not repeated the next days unless they pass a new milestone.
+    await runDailyDigest(db, { mediaDir: "/nonexistent/media", siteSyncUrl: null }, { ...deps, record: true }, NOW);
+    const nextDay = new Date(NOW.getTime() + 3_600_000);
+    expect(selectStandouts(db, nextDay, recentlyReported(db, nextDay)).map((post) => post.postId)).toEqual([carousel.id]);
+    const later = new Date(NOW.getTime() + 6 * 86_400_000);
+    expect(recentlyReported(db, later).size).toBe(0);
     db.close();
   });
 

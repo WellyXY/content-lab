@@ -130,6 +130,14 @@ export function RecreatePanel({ recreations: all, mode = "recreate" }: { recreat
                 <a className="inline-flex items-center gap-1 text-sm text-primary hover:underline" download href={item.videoUrl}><Download className="size-4" />{t("下载 MP4", "Download MP4")}</a>
               </div>
             ) : null}
+            {item.notes?.videos && item.notes.videos.length > 1 ? (
+              <div className="flex flex-wrap gap-4">{item.notes.videos.slice(1).map((url, index) => (
+                <div className="space-y-2" key={url}>
+                  <video className="aspect-[9/16] w-full max-w-[220px] rounded-lg border border-white/8 bg-black" controls playsInline preload="metadata" src={url} />
+                  <a className="inline-flex items-center gap-1 text-sm text-primary hover:underline" download href={url}><Download className="size-4" />{t(`下载版本 ${index + 2}`, `Download version ${index + 2}`)}</a>
+                </div>
+              ))}</div>
+            ) : null}
             {item.notes?.images ? <CarouselCopy images={item.notes.images} /> : null}
             {item.notes?.rewrites?.length ? (
               <details className="rounded-md border border-white/8 bg-white/[0.02] p-3 text-sm">

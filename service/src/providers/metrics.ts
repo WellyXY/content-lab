@@ -7,6 +7,8 @@ export interface PostMetadata {
   type: "video" | "photo";
   durationS: number | null;
   musicTitle: string | null;
+  /** Signed, short-lived link to the post's sound; used right away, never stored. */
+  musicUrl?: string | null;
   coverUrl: string | null;
   mediaUrl: string | null;
   /** Every image of a photo carousel, in order; empty for videos. */

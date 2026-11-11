@@ -11,7 +11,7 @@ export async function PUT(request: Request, context: Context) {
   const { id, filename } = await context.params;
   const key = recreationKey(id, filename);
   if (!key) return jsonError("文件路径不正确 · Invalid file path", 400);
-  const expected = filename === "video.mp4" ? "video/mp4" : "image/jpeg";
+  const expected = filename.endsWith(".mp4") ? "video/mp4" : "image/jpeg";
   if (request.headers.get("content-type")?.split(";")[0] !== expected) return jsonError(`只接受 ${expected} · ${expected} only`, 415);
   if (Number(request.headers.get("content-length") ?? 0) > MAX_RECREATION_BYTES) return jsonError("文件超过 50 MiB · File exceeds 50 MiB", 413);
   try {

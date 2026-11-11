@@ -10,6 +10,7 @@ import { analyzeLayout, type ImageLayout } from "./layout.js";
 import { copyPrompt, generateWithCodex } from "./generate.js";
 import { blendLayer, compositeOverlays, overlayMask } from "./overlay.js";
 import { imageSize, readRgb, readRgba, writeJpeg } from "./pixels.js";
+import { carouselVideo } from "./video.js";
 import { rewriteCarousel, type Rewrite, type RewrittenImage } from "./rewrite.js";
 
 /** Versions generated per photo, and Codex sessions run at once. */
@@ -24,6 +25,10 @@ export interface ImageCopyNotes {
   images: Array<{ index: number; kept: boolean; original: string; variants: string[]; failed: number }>;
   /** Text rewritten with the same story (empty when the text was kept as it is). */
   rewrites: Rewrite[];
+  /** One video per version: the images in order, as TikTok plays a photo post. */
+  videos?: string[];
+  /** Whether the videos carry the original post's music. */
+  music?: boolean;
 }
 
 export interface ImageCopyDeps {
@@ -33,6 +38,9 @@ export interface ImageCopyDeps {
   analyze?: (config: ServiceConfig, images: string[]) => Promise<ImageLayout[]>;
   generate?: (dir: string, sourcePath: string, prompt: string) => Promise<string | null>;
   rewrite?: typeof rewriteCarousel;
+  /** Download the original post's music to `dest`; returns the path, or null when it is unavailable. */
+  music?: (postId: string, dest: string) => Promise<string | null>;
+  video?: typeof carouselVideo;
 }
 
 /** What the analysis and the knowledge base evaluation say about the post, to steer the rewrite. */
@@ -100,6 +108,8 @@ export async function runImageCopy(
 
     save("rendering");
     const images: ImageCopyNotes["images"] = [];
+    // Local file of each image per version, for the videos: a version's own image, else version 1, else the original.
+    const frames = new Map<string, string>();
     for (const layout of layouts) {
       const source = sources[layout.index - 1]!;
       const name = (variant: number) => `img-${String(layout.index).padStart(2, "0")}-${variant}.jpg`;
@@ -110,6 +120,7 @@ export async function runImageCopy(
         // A chat screenshot rebuilt with the rewritten messages.
         const output = join(dir, name(1));
         await writeJpeg(output, await readRgb(page.screen));
+        frames.set(`${layout.index}-1`, output);
         images.push({ index: layout.index, kept: false, original, variants: [await deps.upload(input.recreationId, name(1), output, "image/jpeg")], failed: 0 });
         continue;
       }
@@ -124,6 +135,7 @@ export async function runImageCopy(
         const photo = await readRgb(base, sourceRgb);
         // Rewritten text and rebuilt chats when the text session produced them; otherwise the original text and UI pixels.
         await writeJpeg(output, layer ? blendLayer(photo, layer) : compositeOverlays(photo, sourceRgb, mask));
+        frames.set(`${layout.index}-${variant}`, output);
         variants.push(await deps.upload(input.recreationId, name(variant), output, "image/jpeg"));
       }
       images.push({ index: layout.index, kept: false, original, variants, failed: VARIANTS_PER_IMAGE - variants.length });
@@ -132,16 +144,33 @@ export async function runImageCopy(
     const made = images.filter((image) => layouts[image.index - 1]?.kind === "photo").reduce((sum, image) => sum + image.variants.length, 0);
     const chats = images.filter((image) => layouts[image.index - 1]?.kind === "screenshot" && !image.kept).length;
     if (photos > 0 && made === 0) throw new Error("Codex generated no image");
+    // The post as TikTok plays it: one video per version, images in order with the original post's music.
+    const musicPath = await deps.music?.(post.id, join(dir, "music.m4a")).catch(() => null) ?? null;
+    const videos: string[] = [];
+    for (let variant = 1; variant <= VARIANTS_PER_IMAGE; variant += 1) {
+      if (variant > 1 && !layouts.some((layout) => frames.has(`${layout.index}-${variant}`))) continue;
+      const order = layouts.map((layout) => frames.get(`${layout.index}-${variant}`) ?? frames.get(`${layout.index}-1`) ?? sources[layout.index - 1]!);
+      const output = join(dir, `video-${variant}.mp4`);
+      try {
+        await (deps.video ?? carouselVideo)(order, musicPath, output);
+        // The first version uses the name every Site release accepts.
+        videos.push(await deps.upload(input.recreationId, variant === 1 ? "video.mp4" : `video-${variant}.mp4`, output, "video/mp4"));
+      } catch { /* the images are still delivered */ }
+    }
     const kept = images.filter((image) => image.kept).length;
     const failed = images.reduce((sum, image) => sum + image.failed, 0);
     const notes: ImageCopyNotes = {
       kind: "image_copy",
       summary_zh: `${photos} 张照片各生成 ${VARIANTS_PER_IMAGE} 个版本（共 ${made} 张${failed ? `，${failed} 张生成失败` : ""}）${chats ? `，${chats} 张聊天截图按改写后的对话重建` : ""}${kept ? `，${kept} 张 App 截图保持原样` : ""}。${rewrites.length ? `文案和聊天改写了 ${rewrites.length} 处，剧情不变。` : "文字和 App 界面从原图原样保留。"}`,
       summary_en: `${made} new images for ${photos} photos (${VARIANTS_PER_IMAGE} versions each${failed ? `, ${failed} failed` : ""})${chats ? `; ${chats} chat screenshots rebuilt with the rewritten messages` : ""}${kept ? `; ${kept} app screenshots kept as they are` : ""}. ${rewrites.length ? `${rewrites.length} captions and messages reworded with the same story.` : "Text and app UI are copied from the original."}`,
-      changes: [], images, rewrites,
+      changes: [], images, rewrites, videos, music: musicPath !== null,
     };
+    if (videos.length) {
+      notes.summary_zh += `已合成 ${videos.length} 条视频${musicPath ? "，配原帖音乐" : "（没取到原帖音乐，无声）"}。`;
+      notes.summary_en += ` ${videos.length} video${videos.length === 1 ? "" : "s"} assembled${musicPath ? " with the original post's music" : " (the original music was unavailable; silent)"}.`;
+    }
     const cover = images.find((image) => image.variants.length)?.variants[0];
-    save("complete", { notes, ...(cover ? { coverUrl: cover } : {}) });
+    save("complete", { notes, ...(cover ? { coverUrl: cover } : {}), ...(videos[0] ? { videoUrl: videos[0] } : {}) });
     await deps.notify?.(`一键复制完成 · post ${input.sitePostId}：${notes.summary_zh}`).catch(() => undefined);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

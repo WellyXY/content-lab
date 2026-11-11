@@ -249,6 +249,8 @@ export type Recreation = {
     images?: Array<{ index: number; kept: boolean; original: string; variants: string[]; failed: number }>;
     /** Carousel copies: captions and chat messages reworded with the same story. */
     rewrites?: Array<{ image: number; original: string; rewritten: string }>;
+    /** Carousel copies: one video per version, the images in order with the original post's music. */
+    videos?: string[];
   } | null;
   videoUrl: string | null;
   coverUrl: string | null;

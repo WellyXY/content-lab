@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import type { ImageCopyNotes } from "../copy/run.js";
 import type { ContentLabDatabase } from "../db/database.js";
 import type { DocItem, DocWriter } from "./doc.js";
-import { reportDate, selectStandouts, type Standout } from "./select.js";
+import { recentlyReported, reportDate, selectStandouts, type Standout } from "./select.js";
 
 /** Carousels copied per daily update; each takes a few minutes of Codex. */
 export const MAX_DAILY_COPIES = 3;
@@ -48,6 +48,9 @@ export function buildDigestDoc(input: { date: string; standouts: Standout[]; cop
   for (const copy of input.copies) {
     items.push({ kind: "heading", level: 3, text: who(copy.post) });
     items.push({ kind: "text", runs: [{ text: `${copy.notes.summary_zh} ` }, { text: "原帖", link: copy.post.url }] });
+    if (copy.notes.videos?.length && input.siteUrl) {
+      items.push({ kind: "text", runs: [{ text: "视频（图片按顺序合成，配原帖音乐）：", bold: true }, ...copy.notes.videos.flatMap((url, index) => [{ text: index ? " · " : "" }, { text: `版本 ${index + 1} 下载`, link: url.startsWith("http") ? url : `${input.siteUrl}${url}` }])] });
+    }
     const recreateDir = resolve(input.mediaDir, "..", "recreate", copy.recreationId);
     for (const image of copy.notes.images) {
       const original = join(input.mediaDir, copy.post.postId, `img-${String(image.index).padStart(2, "0")}.jpg`);
@@ -73,7 +76,8 @@ export function buildDigestMessage(input: { date: string; standouts: Standout[];
   const lines = [`Content Lab 每日更新：过去 24 小时有 ${input.standouts.length} 条帖子表现突出（投放为 ${day}）`];
   input.standouts.forEach((post, index) => lines.push(`${index + 1}. ${who(post)} ${standoutLine(post, input.date)}`));
   const made = input.copies.reduce((sum, copy) => sum + copy.notes.images.reduce((n, image) => n + image.variants.length, 0), 0);
-  if (input.copies.length) lines.push(`图文复制：已为 ${input.copies.length} 条图文帖子生成复制版，共 ${made} 张新图。`);
+  const videos = input.copies.reduce((sum, copy) => sum + (copy.notes.videos?.length ?? 0), 0);
+  if (input.copies.length) lines.push(`图文复制：已为 ${input.copies.length} 条图文帖子生成复制版，共 ${made} 张新图${videos ? `、${videos} 条配原帖音乐的视频` : ""}。`);
   if (input.docUrl) lines.push(`详情和图片：${input.docUrl}`);
   return lines.join("\n");
 }
@@ -83,6 +87,8 @@ export interface DigestDeps {
   copy: (post: Standout, recreationId: string) => Promise<ImageCopyNotes | null>;
   writer: DocWriter | null;
   send: (text: string) => Promise<void>;
+  /** Remember what was reported so the next days do not repeat it; off for previews. */
+  record?: boolean;
 }
 
 /**
@@ -91,13 +97,15 @@ export interface DigestDeps {
  */
 export async function runDailyDigest(db: ContentLabDatabase, config: { mediaDir: string; siteSyncUrl: string | null }, deps: DigestDeps, now = new Date()): Promise<{ standouts: number; copies: number; docUrl: string | null }> {
   const date = reportDate(now);
-  const standouts = selectStandouts(db, now);
+  const standouts = selectStandouts(db, now, recentlyReported(db, now));
   const copies: DigestCopy[] = [];
   const failedCopies: Standout[] = [];
   for (const post of standouts.filter((item) => item.type === "photo").slice(0, MAX_DAILY_COPIES)) {
     // The newest finished copy of this carousel is reused, whoever made it.
     const existing = db.prepare("SELECT id, notes_json FROM recreations WHERE post_id=? AND status='complete' AND notes_json LIKE '%\"kind\":\"image_copy\"%' ORDER BY created_at DESC LIMIT 1").get(post.postId) as { id: string; notes_json: string } | undefined;
-    if (existing) { copies.push({ post, recreationId: existing.id, notes: JSON.parse(existing.notes_json) as ImageCopyNotes }); continue; }
+    const earlier = existing ? JSON.parse(existing.notes_json) as ImageCopyNotes : null;
+    // Copies from before videos were assembled are made again: the video is what gets posted.
+    if (existing && earlier?.videos?.length) { copies.push({ post, recreationId: existing.id, notes: earlier }); continue; }
     const recreationId = `digest-${date}-${post.postId.slice(0, 8)}`;
     const notes = await deps.copy(post, recreationId).catch(() => null);
     if (notes) copies.push({ post, recreationId, notes }); else failedCopies.push(post);
@@ -108,5 +116,6 @@ export async function runDailyDigest(db: ContentLabDatabase, config: { mediaDir:
     docUrl = (await deps.writer.write(`Content Lab 每日更新 ${today}`, buildDigestDoc({ date, standouts, copies, failedCopies, siteUrl: config.siteSyncUrl, mediaDir: config.mediaDir }))).url;
   }
   await deps.send(buildDigestMessage({ date, standouts, copies, docUrl }));
+  if (deps.record) for (const post of standouts) db.prepare("INSERT OR IGNORE INTO digest_posts(post_id, report_date) VALUES (?, ?)").run(post.postId, date);
   return { standouts: standouts.length, copies: copies.length, docUrl };
 }

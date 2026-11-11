@@ -169,6 +169,11 @@ const MIGRATIONS = [
     url TEXT PRIMARY KEY, market TEXT NOT NULL, bound_by TEXT, created_at TEXT NOT NULL
   ) STRICT;
   `,
+  `
+  CREATE TABLE digest_posts (
+    post_id TEXT NOT NULL, report_date TEXT NOT NULL, PRIMARY KEY (post_id, report_date)
+  ) STRICT;
+  `,
 ] as const;
 
 export function migrate(db: DatabaseSync): void {

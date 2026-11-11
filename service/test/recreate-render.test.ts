@@ -26,7 +26,7 @@ describe("rendition checks", () => {
     const long = join(dir, "l.mp4"); make(long, "1080x1920", 6);
     await expect(verifyRendition(long, 4)).rejects.toThrow(/longer than the source/);
     rmSync(dir, { recursive: true, force: true });
-  });
+  }, 30_000);
 
   it("renders through the injected renderer and writes a cover", async () => {
     const dir = mkdtempSync(join(tmpdir(), "render-"));

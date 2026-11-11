@@ -35,11 +35,20 @@ export function reportDate(now: Date): string {
  * Today's standouts: posts that raised a views signal in the last 24 hours (most views gained first), and the
  * promoted posts with the most registrations yesterday. A post can be both.
  */
-export function selectStandouts(db: ContentLabDatabase, now = new Date()): Standout[] {
+/** A post the group was told about this recently is not repeated, unless it has since passed a new views milestone. */
+export const REPEAT_AFTER_DAYS = 3;
+
+export function recentlyReported(db: ContentLabDatabase, now: Date): Set<string> {
+  const since = new Date(now.getTime() + 8 * 3_600_000 - (REPEAT_AFTER_DAYS + 1) * DAY).toISOString().slice(0, 10);
+  return new Set((db.prepare("SELECT DISTINCT post_id FROM digest_posts WHERE report_date >= ?").all(since) as Array<{ post_id: string }>).map((row) => row.post_id));
+}
+
+export function selectStandouts(db: ContentLabDatabase, now = new Date(), skip: ReadonlySet<string> = new Set()): Standout[] {
   const since = new Date(now.getTime() - DAY).toISOString();
   const date = reportDate(now);
-  const signalRows = db.prepare(`SELECT post_id, GROUP_CONCAT(DISTINCT rule) AS rules FROM alerts
-    WHERE rule IN ('surge','acceleration','milestone') AND fired_at >= ? AND post_id IS NOT NULL GROUP BY post_id`).all(since) as Array<{ post_id: string; rules: string }>;
+  const signalRows = (db.prepare(`SELECT post_id, GROUP_CONCAT(DISTINCT rule) AS rules FROM alerts
+    WHERE rule IN ('surge','acceleration','milestone') AND fired_at >= ? AND post_id IS NOT NULL GROUP BY post_id`).all(since) as Array<{ post_id: string; rules: string }>)
+    .filter((row) => !skip.has(row.post_id) || row.rules.split(",").includes("milestone"));
   const adRows = db.prepare(`SELECT p.id AS post_id, SUM(d.spend) AS spend, SUM(d.registrations) AS registrations
     FROM ad_daily d JOIN ad_links l ON l.ad_id=d.ad_id JOIN posts p ON p.video_id=l.tiktok_item_id
     WHERE d.stat_date=? GROUP BY p.id`).all(date) as Array<{ post_id: string; spend: number; registrations: number }>;
@@ -60,7 +69,7 @@ export function selectStandouts(db: ContentLabDatabase, now = new Date()): Stand
     .filter((item): item is { base: NonNullable<ReturnType<typeof describe>>; signals: string[] } => item.base?.type === "photo")
     .sort((a, b) => b.base.dayViews - a.base.dayViews).slice(0, MAX_PHOTO_EXTRAS);
   for (const item of photos) picked.set(item.base.postId, { ...item.base, signals: item.signals, reasons: ["views"] });
-  const byAds = adRows.filter((row) => row.registrations >= ADS_MIN_REGISTRATIONS && row.spend >= ADS_MIN_SPEND).sort((a, b) => b.registrations - a.registrations).slice(0, MAX_ADS_STANDOUTS);
+  const byAds = adRows.filter((row) => row.registrations >= ADS_MIN_REGISTRATIONS && row.spend >= ADS_MIN_SPEND && (!skip.has(row.post_id) || picked.has(row.post_id))).sort((a, b) => b.registrations - a.registrations).slice(0, MAX_ADS_STANDOUTS);
   for (const row of byAds) {
     const existing = picked.get(row.post_id);
     if (existing) { existing.reasons.push("ads"); continue; }
