@@ -78,3 +78,52 @@ export function selectStandouts(db: ContentLabDatabase, now = new Date(), skip: 
   }
   return [...picked.values()];
 }
+
+/** Photo carousels copied by each daily update: half the cheapest registrations, half the fastest growth. */
+export const DAILY_PHOTO_COPIES = 10;
+/** A carousel's registration cost counts once its Spark Ads spent this much and brought this many registrations. */
+export const COPY_MIN_SPEND = 50;
+export const COPY_MIN_REGISTRATIONS = 30;
+
+/** Why a carousel was picked for copying. */
+export type CopyReason = "cheap_registrations" | "growth";
+export interface PhotoPick extends Standout { pick: CopyReason[]; costPerRegistration: number | null }
+
+/**
+ * Today's carousels to copy, each copied once (one with a finished copy that has versions is skipped):
+ * half the lowest lifetime cost per registration (with enough Spark Ads evidence), half the most views gained in the
+ * last 24 hours; either side fills the other's unused places.
+ */
+export function topPhotoPosts(db: ContentLabDatabase, now = new Date(), limit = DAILY_PHOTO_COPIES): PhotoPick[] {
+  const since = new Date(now.getTime() - DAY).toISOString();
+  const rows = db.prepare(`SELECT p.id, p.site_post_id, p.url, p.market, c.handle,
+      (SELECT views FROM metric_snapshots s WHERE s.post_id=p.id AND s.ok=1 ORDER BY captured_at DESC LIMIT 1) AS views,
+      (SELECT COALESCE(SUM(views_delta), 0) FROM post_hourly h WHERE h.post_id=p.id AND h.hour_bucket >= ?) AS day_views,
+      json_extract(p.ads_json, '$.lifetime.spend') AS spend, json_extract(p.ads_json, '$.lifetime.registrations') AS registrations
+    FROM posts p LEFT JOIN creators c ON c.id=p.creator_id
+    WHERE p.type='photo' AND p.tracking_state != 'stopped'
+      AND NOT EXISTS (SELECT 1 FROM recreations r WHERE r.post_id=p.id AND r.status='complete' AND r.notes_json LIKE '%"versions":[{%')`).all(since) as Array<{ id: string; site_post_id: string | null; url: string; market: string | null; handle: string | null; views: number | null; day_views: number; spend: number | null; registrations: number | null }>;
+  const toPick = (row: (typeof rows)[number]): PhotoPick => ({
+    postId: row.id, sitePostId: row.site_post_id, url: row.url, handle: row.handle, market: row.market, type: "photo",
+    views: row.views, dayViews: row.day_views, signals: [], ads: null, reasons: ["views"], pick: [],
+    costPerRegistration: row.spend !== null && row.registrations ? row.spend / row.registrations : null,
+  });
+  const cheap = rows.filter((row) => (row.spend ?? 0) >= COPY_MIN_SPEND && (row.registrations ?? 0) >= COPY_MIN_REGISTRATIONS)
+    .map(toPick).sort((a, b) => a.costPerRegistration! - b.costPerRegistration!);
+  const growth = rows.filter((row) => row.day_views > 0).map(toPick).sort((a, b) => b.dayViews - a.dayViews);
+  const picked = new Map<string, PhotoPick>();
+  const isCheap = new Set(cheap.map((post) => post.postId));
+  // Half the places go to the cheapest registrations, the rest to growth; whichever side runs short, the other fills in.
+  const cheapPlaces = Math.min(Math.ceil(limit / 2), cheap.length);
+  for (const post of cheap.slice(0, cheapPlaces)) picked.set(post.postId, { ...post, pick: ["cheap_registrations"] });
+  for (const post of growth) {
+    if (picked.size >= limit) break;
+    const existing = picked.get(post.postId);
+    if (existing) existing.pick.push("growth"); else picked.set(post.postId, { ...post, pick: isCheap.has(post.postId) ? ["growth", "cheap_registrations"] : ["growth"] });
+  }
+  for (const post of cheap.slice(cheapPlaces)) {
+    if (picked.size >= limit) break;
+    if (!picked.has(post.postId)) picked.set(post.postId, { ...post, pick: ["cheap_registrations"] });
+  }
+  return [...picked.values()];
+}

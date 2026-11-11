@@ -5,7 +5,7 @@ import type { ImageCopyNotes } from "../src/copy/run.js";
 import { openDatabase } from "../src/db/database.js";
 import { itemBlock, type DocItem } from "../src/digest/doc.js";
 import { buildDigestMessage, digestDue, money, runDailyDigest } from "../src/digest/run.js";
-import { recentlyReported, reportDate, selectStandouts } from "../src/digest/select.js";
+import { recentlyReported, reportDate, selectStandouts, topPhotoPosts } from "../src/digest/select.js";
 
 const NOW = new Date("2026-11-11T03:00:00.000Z");
 
@@ -45,7 +45,8 @@ describe("today's standouts", () => {
 });
 
 describe("the daily update", () => {
-  const notes: ImageCopyNotes = { kind: "image_copy", summary_zh: "1 张照片各生成 2 个版本", summary_en: "", changes: [], rewrites: [{ image: 1, original: "a", rewritten: "b" }], videos: ["/media/recreations/x/video.mp4", "/media/recreations/x/video-2.mp4"], music: true, images: [{ index: 1, kept: false, original: "o", variants: ["v1", "v2"], failed: 0 }] };
+  const notes: ImageCopyNotes = { kind: "image_copy", summary_zh: "1 张照片各生成 2 个版本", summary_en: "", changes: [], rewrites: [{ image: 1, original: "a", rewritten: "b" }], videos: ["/media/recreations/x/video.mp4", "/media/recreations/x/video-2.mp4"], music: true,
+    versions: [{ version: 1, images: ["v1"], video: "/media/recreations/x/video.mp4", set: null }, { version: 2, images: ["v2"], video: "/media/recreations/x/video-2.mp4", set: null }], images: [{ index: 1, kept: false, original: "o", variants: ["v1", "v2"], failed: 0 }] };
 
   it("copies each standout carousel once, writes the document and sends one message with program-made numbers", async () => {
     const { db, carousel } = seeded();
@@ -68,7 +69,7 @@ describe("the daily update", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]).toContain("有 3 条帖子表现突出");
     expect(sent[0]).toContain("@c1（ID 视频） 24 小时 +600,000 播放（累计 2,000,000）；信号：日增爆发；11-10 投放：301 注册，$0.40/注册，花费 $121.23");
-    expect(sent[0]).toContain("已为 1 条图文帖子生成复制版，共 2 张新图、2 条配原帖音乐的视频");
+    expect(sent[0]).toContain("已为今日 Top 1 条图文帖子生成复制版，共 2 张新图、2 条配原帖音乐的视频");
     expect(JSON.stringify(doc!.items)).toContain("视频：下载（配原帖音乐）");
     expect(sent[0]).toContain("https://acme.feishu.cn/docx/Doc1");
     const text = JSON.stringify(doc!.items);
@@ -85,6 +86,8 @@ describe("the daily update", () => {
     expect(selectStandouts(db, nextDay, recentlyReported(db, nextDay)).map((post) => post.postId)).toEqual([carousel.id]);
     const later = new Date(NOW.getTime() + 6 * 86_400_000);
     expect(recentlyReported(db, later).size).toBe(0);
+    // A carousel is copied once: the next day it is not picked again.
+    expect(topPhotoPosts(db, new Date(NOW.getTime() + 86_400_000)).map((post) => post.postId)).not.toContain(carousel.id);
     db.close();
   });
 
@@ -105,5 +108,31 @@ describe("the daily update", () => {
     expect(money(null)).toBe("—");
     expect(itemBlock({ kind: "heading", level: 2, text: "标题" })).toMatchObject({ block_type: 4, heading2: { elements: [{ text_run: { content: "标题" } }] } });
     expect(itemBlock({ kind: "bullet", runs: [{ text: "TikTok", link: "https://www.tiktok.com/@a/video/1" }] })).toMatchObject({ block_type: 12, bullet: { elements: [{ text_run: { text_element_style: { link: { url: "https%3A%2F%2Fwww.tiktok.com%2F%40a%2Fvideo%2F1" } } } }] } });
+  });
+});
+
+describe("carousels to copy", () => {
+  it("are half the cheapest registrations with enough evidence and half the fastest growth, without repeats", () => {
+    const db = openDatabase(":memory:");
+    const add = (index: number, gained: number, ads: { spend: number; registrations: number } | null) => {
+      const videoId = `75000000000000000${String(index).padStart(2, "0")}`;
+      const post = upsertPost(db, { source: "tikwm", metrics: null, metadata: { videoId, url: `https://www.tiktok.com/@p${index}/photo/${videoId}`, authorId: `u${index}`, authorHandle: `p${index}`, caption: "", type: "photo", durationS: null, musicTitle: null, coverUrl: null, mediaUrl: null, imageUrls: [], publishedAt: "2026-11-05T00:00:00.000Z" } }, { market: "TH", projectTag: null, boundBy: null }, "2026-11-05T01:00:00.000Z");
+      if (gained) db.prepare("INSERT INTO post_hourly(post_id, hour_bucket, views_delta, coverage) VALUES (?, '2026-11-10T20:00:00.000Z', ?, 'observed')").run(post.id, gained);
+      if (ads) db.prepare("UPDATE posts SET ads_json=? WHERE id=?").run(JSON.stringify({ lifetime: ads }), post.id);
+      return post.id;
+    };
+    // Cheap: 0.20, 0.30, 0.40 per registration; too little evidence: 0.10 on 10 registrations.
+    const cheap = [add(1, 0, { spend: 60, registrations: 300 }), add(2, 0, { spend: 60, registrations: 200 }), add(3, 500, { spend: 60, registrations: 150 })];
+    const thin = add(4, 0, { spend: 1, registrations: 10 });
+    const growth = [add(5, 9_000, null), add(6, 8_000, null), add(7, 7_000, null), add(8, 6_000, null)];
+    const picks = topPhotoPosts(db, NOW, 4);
+    expect(picks.map((post) => post.postId)).toEqual([cheap[0], cheap[1], growth[0], growth[1]]);
+    expect(picks[0]).toMatchObject({ pick: ["cheap_registrations"], costPerRegistration: 0.2 });
+    expect(picks.map((post) => post.postId)).not.toContain(thin);
+    // Too few growing carousels: cheap ones fill the rest.
+    const wide = topPhotoPosts(db, NOW, 10);
+    expect(wide).toHaveLength(7);
+    expect(wide.find((post) => post.postId === cheap[2])!.pick).toEqual(["cheap_registrations", "growth"]);
+    db.close();
   });
 });

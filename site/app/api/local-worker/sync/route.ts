@@ -10,10 +10,11 @@ import {
   pick,
   requireWorker,
 } from "@/lib/server/content-db";
+import { getMediaBucket } from "@/lib/server/media-storage";
 
 const eventSchema = z.object({
   id: z.string().min(1).max(160),
-  type: z.enum(["post", "snapshot", "features", "prediction", "job", "alert", "playbook", "post_deleted", "recreation"]),
+  type: z.enum(["post", "snapshot", "features", "prediction", "job", "alert", "playbook", "post_deleted", "recreation", "recreation_deleted"]),
   entityKey: z.string().min(1).max(160),
   occurredAt: z.string().datetime({ offset: true }),
   payload: z.record(z.string(), z.unknown()),
@@ -78,6 +79,7 @@ async function applyEvent(db: D1Database, event: SyncEvent) {
     case "playbook": return syncPlaybook(db, event);
     case "post_deleted": return syncPostDeleted(db, event);
     case "recreation": return syncRecreation(db, event);
+    case "recreation_deleted": return syncRecreationDeleted(db, event);
   }
 }
 
@@ -99,6 +101,16 @@ async function syncRecreation(db: D1Database, event: SyncEvent) {
       nullableString(pick(payload, "coverUrl")), nullableString(pick(payload, "error")), Number(pick(payload, "counts") ?? 1), now, now,
       // Only the worker's own copies say their kind; it corrects rows an older Site release filed as recreations.
       pick(payload, "kind") === "copy" ? 1 : 0).run();
+}
+
+/** The owner removed one recreation or copy: its record and its files go. */
+async function syncRecreationDeleted(db: D1Database, event: SyncEvent) {
+  const id = nullableString(pick(event.payload, "id")) ?? event.entityKey;
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id)) throw new Error("recreation_deleted.id is invalid");
+  await db.prepare("DELETE FROM recreations WHERE id = ?").bind(id).run();
+  const bucket = getMediaBucket();
+  const listed = await bucket.list({ prefix: `recreations/${id}/`, limit: 1000 });
+  if (listed.objects.length) await bucket.delete(listed.objects.map((object) => object.key));
 }
 
 /** The owner removed a post locally: drop the hosted copy and everything attached to it. */

@@ -37,7 +37,7 @@ export const REMOTE_ANALYZE_POST_COOLDOWN_MS = 6 * 3_600_000;
 
 export type SiteSyncEvent = {
   id: string;
-  type: "post" | "snapshot" | "features" | "prediction" | "job" | "alert" | "playbook" | "post_deleted" | "recreation";
+  type: "post" | "snapshot" | "features" | "prediction" | "job" | "alert" | "playbook" | "post_deleted" | "recreation" | "recreation_deleted";
   entityKey: string;
   occurredAt: string;
   payload: unknown;
