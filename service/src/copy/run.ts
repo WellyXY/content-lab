@@ -1,4 +1,6 @@
-import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { promisify } from "node:util";
 import { join, resolve } from "node:path";
 
 import type { ServiceConfig } from "../config.js";
@@ -12,6 +14,8 @@ import { blendLayer, compositeOverlays, overlayMask } from "./overlay.js";
 import { imageSize, readRgb, readRgba, writeJpeg } from "./pixels.js";
 import { carouselVideo } from "./video.js";
 import { rewriteCarousel, type Rewrite, type RewrittenImage } from "./rewrite.js";
+
+const execFileAsync = promisify(execFile);
 
 /** Versions generated per photo, and Codex sessions run at once. */
 export const VARIANTS_PER_IMAGE = 2;
@@ -29,6 +33,8 @@ export interface ImageCopyNotes {
   videos?: string[];
   /** Whether the videos carry the original post's music. */
   music?: boolean;
+  /** Per version: the full image set in order (to post as photos), its zip, and its video (to post as a video). */
+  versions?: Array<{ version: number; images: string[]; video: string | null; set: string | null }>;
 }
 
 export interface ImageCopyDeps {
@@ -58,6 +64,15 @@ export function postContext(db: ContentLabDatabase, postId: string): string | nu
     judged?.diagnosis?.barriers?.length ? `Weak spots: ${judged.diagnosis.barriers.map((item) => item.en).filter(Boolean).join("; ")}` : "",
   ].filter(Boolean);
   return lines.length ? lines.join("\n") : null;
+}
+
+/** The images of one version as numbered files in a zip, ready to post in order. */
+async function zipImages(files: Array<{ path: string; name: string }>, zip: string, staging: string): Promise<void> {
+  rmSync(staging, { recursive: true, force: true });
+  mkdirSync(staging, { recursive: true });
+  for (const file of files) copyFileSync(file.path, join(staging, file.name));
+  rmSync(zip, { force: true });
+  await execFileAsync("zip", ["-q", "-j", zip, ...files.map((file) => join(staging, file.name))], { timeout: 60_000 });
 }
 
 async function pool<T>(items: T[], size: number, work: (item: T) => Promise<void>): Promise<void> {
@@ -146,16 +161,33 @@ export async function runImageCopy(
     if (photos > 0 && made === 0) throw new Error("Codex generated no image");
     // The post as TikTok plays it: one video per version, images in order with the original post's music.
     const musicPath = await deps.music?.(post.id, join(dir, "music.m4a")).catch(() => null) ?? null;
+    // Each version is two deliverables, for the two ways to post: the full image set in order (a photo post) and its video.
     const videos: string[] = [];
+    const versions: NonNullable<ImageCopyNotes["versions"]> = [];
+    const uploaded = new Map<string, string>(images.flatMap((image): Array<[string, string]> => [[`${image.index}-0`, image.original], ...image.variants.map((url, index): [string, string] => [`${image.index}-${index + 1}`, url])]));
     for (let variant = 1; variant <= VARIANTS_PER_IMAGE; variant += 1) {
       if (variant > 1 && !layouts.some((layout) => frames.has(`${layout.index}-${variant}`))) continue;
-      const order = layouts.map((layout) => frames.get(`${layout.index}-${variant}`) ?? frames.get(`${layout.index}-1`) ?? sources[layout.index - 1]!);
-      const output = join(dir, `video-${variant}.mp4`);
+      // A version without its own image at a position uses version 1 there, else the original (kept screenshots).
+      const pick = (index: number): { path: string; url: string } => {
+        for (const key of [`${index}-${variant}`, `${index}-1`]) if (frames.has(key)) return { path: frames.get(key)!, url: uploaded.get(key) ?? "" };
+        return { path: sources[index - 1]!, url: uploaded.get(`${index}-0`) ?? "" };
+      };
+      const order = layouts.map((layout) => pick(layout.index));
+      let video: string | null = null;
       try {
-        await (deps.video ?? carouselVideo)(order, musicPath, output);
+        const output = join(dir, `video-${variant}.mp4`);
+        await (deps.video ?? carouselVideo)(order.map((item) => item.path), musicPath, output);
         // The first version uses the name every Site release accepts.
-        videos.push(await deps.upload(input.recreationId, variant === 1 ? "video.mp4" : `video-${variant}.mp4`, output, "video/mp4"));
+        video = await deps.upload(input.recreationId, variant === 1 ? "video.mp4" : `video-${variant}.mp4`, output, "video/mp4");
+        videos.push(video);
       } catch { /* the images are still delivered */ }
+      let set: string | null = null;
+      try {
+        const zip = join(dir, `set-${variant}.zip`);
+        await zipImages(order.map((item, position) => ({ path: item.path, name: `${String(position + 1).padStart(2, "0")}.jpg` })), zip, join(dir, `set-${variant}`));
+        set = await deps.upload(input.recreationId, `set-${variant}.zip`, zip, "application/zip");
+      } catch { /* each image can still be downloaded on its own */ }
+      versions.push({ version: variant, images: order.map((item) => item.url), video, set });
     }
     const kept = images.filter((image) => image.kept).length;
     const failed = images.reduce((sum, image) => sum + image.failed, 0);
@@ -163,7 +195,7 @@ export async function runImageCopy(
       kind: "image_copy",
       summary_zh: `${photos} 张照片各生成 ${VARIANTS_PER_IMAGE} 个版本（共 ${made} 张${failed ? `，${failed} 张生成失败` : ""}）${chats ? `，${chats} 张聊天截图按改写后的对话重建` : ""}${kept ? `，${kept} 张 App 截图保持原样` : ""}。${rewrites.length ? `文案和聊天改写了 ${rewrites.length} 处，剧情不变。` : "文字和 App 界面从原图原样保留。"}`,
       summary_en: `${made} new images for ${photos} photos (${VARIANTS_PER_IMAGE} versions each${failed ? `, ${failed} failed` : ""})${chats ? `; ${chats} chat screenshots rebuilt with the rewritten messages` : ""}${kept ? `; ${kept} app screenshots kept as they are` : ""}. ${rewrites.length ? `${rewrites.length} captions and messages reworded with the same story.` : "Text and app UI are copied from the original."}`,
-      changes: [], images, rewrites, videos, music: musicPath !== null,
+      changes: [], images, rewrites, videos, versions, music: musicPath !== null,
     };
     if (videos.length) {
       notes.summary_zh += `已合成 ${videos.length} 条视频${musicPath ? "，配原帖音乐" : "（没取到原帖音乐，无声）"}。`;

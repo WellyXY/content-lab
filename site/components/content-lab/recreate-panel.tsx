@@ -63,6 +63,42 @@ const PHOTO_STAGES: Partial<Record<Recreation["status"], [string, string]>> = {
   rendering: ["合成文字与界面中", "Laying text and UI back"],
 };
 
+type CopyVersion = NonNullable<NonNullable<Recreation["notes"]>["versions"]>[number];
+
+/** Each version as the two things to post: the image set in order (photo post) and its video (video post). */
+function CopyVersions({ original, versions }: { original: NonNullable<NonNullable<Recreation["notes"]>["images"]>; versions: CopyVersion[] }) {
+  const { t } = useLocale();
+  const strip = (urls: string[], muted = false) => (
+    <div className="flex gap-2 overflow-x-auto pb-1">{urls.map((url, index) => (
+      <a className="w-24 shrink-0" href={url} key={`${url}-${index}`} rel="noreferrer" target="_blank"><img alt={t(`第 ${index + 1} 张`, `Image ${index + 1}`)} className={`w-full rounded-md border ${muted ? "border-white/8 opacity-80" : "border-primary/30"}`} loading="lazy" src={url} /></a>
+    ))}</div>
+  );
+  return (
+    <div className="space-y-5">
+      <div className="space-y-2"><p className="text-xs text-muted-foreground">{t("原帖", "Original")}</p>{strip(original.map((image) => image.original), true)}</div>
+      {versions.map((version) => (
+        <div className="space-y-3 rounded-lg border border-white/8 bg-white/[0.02] p-3" key={version.version}>
+          <p className="text-sm font-medium">{t(`版本 ${version.version}`, `Version ${version.version}`)}</p>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_200px]">
+            <div className="min-w-0 space-y-2">
+              <p className="text-xs text-muted-foreground">{t("图文帖子：按顺序的整组图片", "Photo post: the full image set in order")}</p>
+              {strip(version.images.filter(Boolean))}
+              {version.set ? <a className="inline-flex items-center gap-1 text-sm text-primary hover:underline" download href={version.set}><Download className="size-4" />{t("下载整组图片（zip）", "Download the image set (zip)")}</a> : null}
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">{t("视频帖子：配原帖音乐", "Video post: with the original music")}</p>
+              {version.video ? <>
+                <video className="aspect-[9/16] w-full rounded-lg border border-white/8 bg-black" controls playsInline preload="metadata" src={version.video} />
+                <a className="inline-flex items-center gap-1 text-sm text-primary hover:underline" download href={version.video}><Download className="size-4" />{t("下载视频", "Download video")}</a>
+              </> : <p className="text-xs text-muted-foreground">{t("视频合成失败", "Video assembly failed")}</p>}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Original next to each generated version, image by image. */
 function CarouselCopy({ images }: { images: NonNullable<NonNullable<Recreation["notes"]>["images"]> }) {
   const { t } = useLocale();
@@ -124,13 +160,13 @@ export function RecreatePanel({ recreations: all, mode = "recreate" }: { recreat
               <span className={item.status === "failed" ? "text-red-300" : item.status === "complete" ? "text-primary" : ""}>{t(...stage(item.status))}</span>
               <span className="text-muted-foreground">{new Date(item.updatedAt).toLocaleString(lang === "en" ? "en" : "zh-CN")}</span>
             </div>
-            {item.videoUrl ? (
+            {item.videoUrl && !item.notes?.versions?.length ? (
               <div className="space-y-2">
                 <video className="aspect-[9/16] w-full max-w-[320px] rounded-lg border border-white/8 bg-black" controls playsInline poster={item.coverUrl ?? undefined} preload="metadata" src={item.videoUrl} />
                 <a className="inline-flex items-center gap-1 text-sm text-primary hover:underline" download href={item.videoUrl}><Download className="size-4" />{t("下载 MP4", "Download MP4")}</a>
               </div>
             ) : null}
-            {item.notes?.videos && item.notes.videos.length > 1 ? (
+            {item.notes?.versions?.length ? <CopyVersions original={item.notes.images ?? []} versions={item.notes.versions} /> : item.notes?.videos && item.notes.videos.length > 1 ? (
               <div className="flex flex-wrap gap-4">{item.notes.videos.slice(1).map((url, index) => (
                 <div className="space-y-2" key={url}>
                   <video className="aspect-[9/16] w-full max-w-[220px] rounded-lg border border-white/8 bg-black" controls playsInline preload="metadata" src={url} />
@@ -138,7 +174,7 @@ export function RecreatePanel({ recreations: all, mode = "recreate" }: { recreat
                 </div>
               ))}</div>
             ) : null}
-            {item.notes?.images ? <CarouselCopy images={item.notes.images} /> : null}
+            {item.notes?.images && !item.notes.versions?.length ? <CarouselCopy images={item.notes.images} /> : null}
             {item.notes?.rewrites?.length ? (
               <details className="rounded-md border border-white/8 bg-white/[0.02] p-3 text-sm">
                 <summary className="cursor-pointer text-muted-foreground">{t(`文字改写对照（${item.notes.rewrites.length} 处）`, `Reworded text (${item.notes.rewrites.length})`)}</summary>

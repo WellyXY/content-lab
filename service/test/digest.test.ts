@@ -69,7 +69,7 @@ describe("the daily update", () => {
     expect(sent[0]).toContain("有 3 条帖子表现突出");
     expect(sent[0]).toContain("@c1（ID 视频） 24 小时 +600,000 播放（累计 2,000,000）；信号：日增爆发；11-10 投放：301 注册，$0.40/注册，花费 $121.23");
     expect(sent[0]).toContain("已为 1 条图文帖子生成复制版，共 2 张新图、2 条配原帖音乐的视频");
-    expect(JSON.stringify(doc!.items)).toContain("版本 2 下载");
+    expect(JSON.stringify(doc!.items)).toContain("视频：下载（配原帖音乐）");
     expect(sent[0]).toContain("https://acme.feishu.cn/docx/Doc1");
     const text = JSON.stringify(doc!.items);
     expect(text).toContain("https://lab.example/posts/");

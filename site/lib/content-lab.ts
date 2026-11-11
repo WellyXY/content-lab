@@ -251,6 +251,8 @@ export type Recreation = {
     rewrites?: Array<{ image: number; original: string; rewritten: string }>;
     /** Carousel copies: one video per version, the images in order with the original post's music. */
     videos?: string[];
+    /** Carousel copies: per version, the full image set in order (photo post), its zip and its video (video post). */
+    versions?: Array<{ version: number; images: string[]; video: string | null; set: string | null }>;
   } | null;
   videoUrl: string | null;
   coverUrl: string | null;

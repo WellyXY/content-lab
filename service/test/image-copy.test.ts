@@ -91,7 +91,7 @@ describe("copying a carousel", () => {
       video: async (_images, music, output) => { expect(music).toBeNull(); execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=c=black:s=1080x1920:d=1", "-frames:v", "1", "-f", "mp4", output]); return { durationS: 6 }; },
     });
     expect(prompts).toBe(2);
-    expect(uploads.sort()).toEqual(["img-01-0.jpg", "img-01-1.jpg", "img-02-0.jpg", "video.mp4"]);
+    expect(uploads.sort()).toEqual(["img-01-0.jpg", "img-01-1.jpg", "img-02-0.jpg", "set-1.zip", "video.mp4"]);
     const row = db.prepare("SELECT status, notes_json FROM recreations WHERE id='rc1'").get() as { status: string; notes_json: string };
     expect(row.status).toBe("complete");
     const notes = JSON.parse(row.notes_json) as ImageCopyNotes;
@@ -165,7 +165,7 @@ describe("copying a carousel with rewritten text", () => {
       music: async (_postId, dest) => { execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:a", "aac", dest]); return dest; },
     });
     expect(rewriteImages).toEqual([{ index: 1, kind: "photo", width: 100, height: 80 }, { index: 2, kind: "screenshot", width: 100, height: 80 }, { index: 3, kind: "screenshot", width: 100, height: 80 }]);
-    expect(uploads.sort()).toEqual(["img-01-0.jpg", "img-01-1.jpg", "img-01-2.jpg", "img-02-0.jpg", "img-02-1.jpg", "img-03-0.jpg", "video-2.mp4", "video.mp4"]);
+    expect(uploads.sort()).toEqual(["img-01-0.jpg", "img-01-1.jpg", "img-01-2.jpg", "img-02-0.jpg", "img-02-1.jpg", "img-03-0.jpg", "set-1.zip", "set-2.zip", "video-2.mp4", "video.mp4"]);
     // One video per version: three images, nine seconds, with the post's music looped.
     const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type,width,height:format=duration", "-of", "json", join(root, "recreate", "rc2", "video-2.mp4")], { encoding: "utf8" })) as { streams: Array<{ codec_type: string; width?: number; height?: number }>; format: { duration: string } };
     expect(probe.streams.find((stream) => stream.codec_type === "video")).toMatchObject({ width: 1080, height: 1920 });
@@ -176,6 +176,13 @@ describe("copying a carousel with rewritten text", () => {
     expect(notes.rewrites).toHaveLength(1);
     expect(notes.summary_zh).toContain("改写了 1 处");
     expect(notes.videos).toEqual(["video.mp4", "video-2.mp4"]);
+    // Each version is a full set in order: its own photo, version 1's rebuilt chat, and the kept screenshot.
+    expect(notes.versions).toEqual([
+      { version: 1, images: ["img-01-1.jpg", "img-02-1.jpg", "img-03-0.jpg"], video: "video.mp4", set: "set-1.zip" },
+      { version: 2, images: ["img-01-2.jpg", "img-02-1.jpg", "img-03-0.jpg"], video: "video-2.mp4", set: "set-2.zip" },
+    ]);
+    const listing = execFileSync("unzip", ["-Z1", join(root, "recreate", "rc2", "set-2.zip")], { encoding: "utf8" }).trim().split("\n");
+    expect(listing).toEqual(["01.jpg", "02.jpg", "03.jpg"]);
     expect(notes.summary_zh).toContain("已合成 2 条视频，配原帖音乐");
     // Left half: the rebuilt caption layer (red); right half: the new grey photo, not the original text.
     const result = await readRgb(join(root, "recreate", "rc2", "img-01-1.jpg"));

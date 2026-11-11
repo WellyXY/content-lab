@@ -48,18 +48,31 @@ export function buildDigestDoc(input: { date: string; standouts: Standout[]; cop
   for (const copy of input.copies) {
     items.push({ kind: "heading", level: 3, text: who(copy.post) });
     items.push({ kind: "text", runs: [{ text: `${copy.notes.summary_zh} ` }, { text: "原帖", link: copy.post.url }] });
-    if (copy.notes.videos?.length && input.siteUrl) {
-      items.push({ kind: "text", runs: [{ text: "视频（图片按顺序合成，配原帖音乐）：", bold: true }, ...copy.notes.videos.flatMap((url, index) => [{ text: index ? " · " : "" }, { text: `版本 ${index + 1} 下载`, link: url.startsWith("http") ? url : `${input.siteUrl}${url}` }])] });
-    }
     const recreateDir = resolve(input.mediaDir, "..", "recreate", copy.recreationId);
-    for (const image of copy.notes.images) {
-      const original = join(input.mediaDir, copy.post.postId, `img-${String(image.index).padStart(2, "0")}.jpg`);
-      const version = (variant: number): string => join(recreateDir, `img-${String(image.index).padStart(2, "0")}-${variant}.jpg`);
-      const images = [
-        ...(existsSync(original) ? [{ path: original, caption: image.kept ? `第 ${image.index} 张 · App 截图，保持原样` : `第 ${image.index} 张 · 原图` }] : []),
-        ...image.variants.map((_, index) => ({ path: version(index + 1), caption: `版本 ${index + 1}` })).filter((item) => existsSync(item.path)),
-      ];
-      if (images.length) items.push({ kind: "images", images });
+    const pad = (index: number): string => String(index).padStart(2, "0");
+    const link = (url: string | null | undefined): string | null => !url ? null : url.startsWith("http") ? url : input.siteUrl ? `${input.siteUrl}${url}` : null;
+    const rows = (paths: Array<{ path: string; caption: string }>): void => {
+      // Five images per row at most, in order.
+      const present = paths.filter((item) => existsSync(item.path));
+      for (let start = 0; start < present.length; start += 5) items.push({ kind: "images", images: present.slice(start, start + 5) });
+    };
+    const indexes = copy.notes.images.map((image) => image.index);
+    items.push({ kind: "text", runs: [{ text: "原帖", bold: true }] });
+    rows(indexes.map((index) => ({ path: join(input.mediaDir, copy.post.postId, `img-${pad(index)}.jpg`), caption: `第 ${index} 张` })));
+    const versions = copy.notes.versions ?? copy.notes.videos?.map((video, position) => ({ version: position + 1, images: [], video, set: null })) ?? [];
+    for (const version of versions) {
+      const video = link(version.video);
+      const set = link(version.set);
+      items.push({ kind: "text", runs: [
+        { text: `版本 ${version.version}`, bold: true },
+        ...(set ? [{ text: " · " }, { text: "图文：下载整组图片（zip）", link: set }] : []),
+        ...(video ? [{ text: " · " }, { text: "视频：下载（配原帖音乐）", link: video }] : []),
+      ] });
+      // The version's own image at each position, else version 1's, else the original (a kept screenshot).
+      rows(indexes.map((index) => {
+        const path = [version.version, 1].map((v) => join(recreateDir, `img-${pad(index)}-${v}.jpg`)).find((candidate) => existsSync(candidate)) ?? join(input.mediaDir, copy.post.postId, `img-${pad(index)}.jpg`);
+        return { path, caption: `第 ${index} 张` };
+      }));
     }
     if (copy.notes.rewrites?.length) {
       items.push({ kind: "text", runs: [{ text: "文字改写（原文 → 改写）", bold: true }] });
