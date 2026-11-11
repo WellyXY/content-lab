@@ -6,6 +6,9 @@ import type { ContentLabDatabase } from "../db/database.js";
 import type { DocItem, DocWriter } from "./doc.js";
 import { DAILY_PHOTO_COPIES, recentlyReported, reportDate, selectStandouts, topPhotoPosts, type CopyReason, type Standout } from "./select.js";
 
+/** Carousels copied at the same time; each runs up to three Codex sessions of its own. */
+export const COPY_CONCURRENCY = 3;
+
 /** A copied carousel as listed in the update (its numbers as of now). */
 function describePhoto(db: ContentLabDatabase, postId: string, now: Date): Standout | null {
   const since = new Date(now.getTime() - 86_400_000).toISOString();
@@ -134,11 +137,15 @@ export async function runDailyDigest(db: ContentLabDatabase, config: { mediaDir:
     const post = describePhoto(db, row.post_id, now);
     if (post) copies.push({ post, recreationId: row.id, notes: JSON.parse(row.notes_json) as ImageCopyNotes });
   }
-  for (const post of topPhotoPosts(db, now, Math.max(0, DAILY_PHOTO_COPIES - copies.length))) {
-    const recreationId = `digest-${date}-${post.postId.slice(0, 8)}`;
-    const notes = await deps.copy(post, recreationId).catch(() => null);
-    if (notes) copies.push({ post, recreationId, notes }); else failedCopies.push(post);
-  }
+  // Copies run COPY_CONCURRENCY at a time; each already runs its image and text sessions in parallel.
+  const queue = topPhotoPosts(db, now, Math.max(0, DAILY_PHOTO_COPIES - copies.length));
+  await Promise.all(Array.from({ length: Math.min(COPY_CONCURRENCY, queue.length) }, async () => {
+    for (let post = queue.shift(); post; post = queue.shift()) {
+      const recreationId = `digest-${date}-${post.postId.slice(0, 8)}`;
+      const notes = await deps.copy(post, recreationId).catch(() => null);
+      if (notes) copies.push({ post, recreationId, notes }); else failedCopies.push(post);
+    }
+  }));
   let docUrl: string | null = null;
   if ((standouts.length || copies.length || failedCopies.length) && deps.writer) {
     const today = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
