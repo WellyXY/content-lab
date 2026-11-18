@@ -2,9 +2,9 @@
 
 export type CreativeStat = { window: number; country: string; spend: number; impressions: number; clicks: number; installs: number; registrations: number };
 export type Creative = {
-  videoId: string; fileName: string | null; durationS: number | null; coverUrl: string | null; firstSeenAt: string;
+  videoId: string; fileName: string | null; durationS: number | null; coverUrl: string | null; videoUrl?: string | null; firstSeenAt: string;
   ads: number; campaigns: string[]; stats: CreativeStat[]; summaryZh: string | null; analyzedAt: string | null;
-  analysis: { hook_translation_zh?: string; hook_text?: string; formula_zh?: string; summary_en?: string; keyframes?: string[] } | null;
+  analysis: { hook_translation_zh?: string; hook_translation_en?: string; hook_text?: string; formula_zh?: string; formula_en?: string; summary_zh?: string; summary_en?: string; keyframes?: string[]; script?: unknown[]; transcript?: string } | null;
 };
 export type CreativeTotals = { spend: number; impressions: number; clicks: number; installs: number; registrations: number; cpr: number | null; cpi: number | null; ctr: number | null };
 

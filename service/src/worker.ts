@@ -1,3 +1,4 @@
+import { creativeMediaBatches, syncCreativeMedia } from "./creatives/media.js";
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -81,23 +82,6 @@ async function pushPendingEvents(): Promise<void> {
 }
 
 /** Covers from TikTok are signed links that expire: copy each new one to the Site once. */
-async function publishCreativeCovers(database: ContentLabDatabase): Promise<void> {
-  if (!config.siteSyncUrl || !config.siteSyncToken) return;
-  const pending = database.prepare("SELECT video_id, cover_url FROM creatives WHERE cover_url LIKE 'http%' LIMIT 500").all() as Array<{ video_id: string; cover_url: string }>;
-  for (const creative of pending) {
-    try {
-      const response = await fetch(creative.cover_url, { signal: AbortSignal.timeout(30_000) });
-      if (!response.ok) continue;
-      const dir = join(config.mediaDir, creativeMediaId(creative.video_id));
-      mkdirSync(dir, { recursive: true });
-      const path = join(dir, "cover.jpg");
-      writeFileSync(path, Buffer.from(await response.arrayBuffer()));
-      const [url] = await uploadKeyframes(config, creativeMediaId(creative.video_id), [path]);
-      if (url) { database.prepare("UPDATE creatives SET cover_url=? WHERE video_id=?").run(url, creative.video_id); syncCreative(database, creative.video_id); }
-    } catch { /* tried again after the next sync */ }
-  }
-}
-
 async function processJob(database: ContentLabDatabase, job: Job): Promise<void> {
   if (job.kind === "ingest") {
     await ingestPost(database, provider, job.payload as { url: string; market?: string | null; projectTag?: string | null; boundBy?: string | null; sitePostId?: string | null });
@@ -107,7 +91,9 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
     const result = await runCreativeSync(database, { call: (call) => runProxyCall(call, { model: config.adsModel }) });
     log("creatives_synced", { ...result });
     if (result.status === "failed") throw new Error(`Creative sync failed: ${result.error ?? "unknown"}`);
-    await publishCreativeCovers(database);
+    // Each video and a cover taken from it go to the Site in small batches on the ads lane.
+    const day = new Date().toISOString().slice(0, 10);
+    for (const batch of creativeMediaBatches(database)) enqueueJob(database, { kind: "creative_media", payload: batch, idempotencyKey: `creative_media:${day}:${batch.videoIds[0]}`, maxAttempts: 2 });
     // Each country's top creatives by spend get the content analysis the guides are written from.
     for (const top of topCreativesByCountry(database).values()) {
       for (const videoId of top) {
@@ -115,6 +101,16 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
         if (done && !done.done) enqueueJob(database, { kind: "creative_analyze", payload: { videoId }, idempotencyKey: `creative_analyze:${videoId}`, maxAttempts: 2 });
       }
     }
+    return;
+  }
+  if (job.kind === "creative_media") {
+    if (!syncClient) return;
+    const client = syncClient;
+    const result = await syncCreativeMedia(database, config.mediaDir, job.payload as { advertiserId: string; videoIds: string[] }, {
+      videoInfo: async (advertiserId, videoIds) => parseVideoInfo(await runProxyCall(videoInfoCall(advertiserId, videoIds), { model: config.adsModel })),
+      upload: (videoId, filename, path) => client.uploadCreativeFile(videoId, filename, path),
+    });
+    log("creative_media_synced", result);
     return;
   }
   if (job.kind === "creative_analyze") {
@@ -351,7 +347,7 @@ async function handleJob(job: Job): Promise<void> {
 function startAnalyses(): void {
   if (Date.now() < analysisPausedUntil) return;
   if (!adsRunning) {
-    const ads = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ADS_LEASE_MS, kinds: ["ads_sync", "creative_sync"] })[0];
+    const ads = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ADS_LEASE_MS, kinds: ["ads_sync", "creative_sync", "creative_media"] })[0];
     if (ads) {
       adsRunning = true;
       void handleJob(ads).finally(() => { adsRunning = false; });
@@ -401,7 +397,7 @@ export async function runWorkerCycle(): Promise<void> {
   await pushPendingEvents();
   startAnalyses();
   for (let processed = 0; processed < 20; processed += 1) {
-    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, excludeKinds: [...MODEL_JOB_KINDS, "recreate", "daily_digest", "ads_sync", "creative_sync"] })[0];
+    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, excludeKinds: [...MODEL_JOB_KINDS, "recreate", "daily_digest", "ads_sync", "creative_sync", "creative_media"] })[0];
     if (!job) break;
     await handleJob(job);
     // An ingest enqueues its analysis; start it right away.

@@ -5,6 +5,10 @@ import { openDatabase } from "../src/db/database.js";
 import { topCreativesByCountry } from "../src/creatives/analyze.js";
 import { countriesDueForGuide, generateCreativeGuide, guideEvidence, validateGuide } from "../src/creatives/guide.js";
 import { creativeReadModel, creativeSyncDue, runCreativeSync } from "../src/creatives/sync.js";
+import { creativeMediaBatches, syncCreativeMedia } from "../src/creatives/media.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const ok = (data: unknown) => ({ code: 0, message: "OK", data });
 const NOW = new Date("2026-11-18T05:00:00.000Z");
@@ -91,6 +95,28 @@ describe("regular ad creatives", () => {
     expect(result).toMatchObject({ status: "ok", creatives: 2 });
     expect(creativeReadModel(db, "v1")).toMatchObject({ fileName: "ID-261113-a.mp4" });
     expect(creativeReadModel(db, "v2")).toMatchObject({ fileName: null });
+    db.close();
+  });
+
+  it("puts each creative's video and a cover taken from it on the Site, retrying failures later", async () => {
+    const db = openDatabase(":memory:");
+    db.prepare("INSERT INTO ad_accounts(advertiser_id, name, updated_at) VALUES ('adv1', 'A', 't')").run();
+    await runCreativeSync(db, { call: fakeTikTok().call, sleep: async () => {} }, NOW);
+    const batches = creativeMediaBatches(db);
+    expect(batches).toEqual([{ advertiserId: "adv1", videoIds: ["v1", "v2"] }]);
+    const dir = mkdtempSync(join(tmpdir(), "cr-media-"));
+    const uploads: string[] = [];
+    const result = await syncCreativeMedia(db, dir, batches[0]!, {
+      videoInfo: async () => [{ videoId: "v1", fileName: "a", materialId: null, durationS: 1, coverUrl: null, previewUrl: "https://v16.tiktokcdn.com/p1" }],
+      download: async (_url, target) => { writeFileSync(target, "mp4"); },
+      pickCover: async (_video, target) => { writeFileSync(target, "jpg"); },
+      upload: async (videoId, filename) => { uploads.push(`${videoId}/${filename}`); return `/media/creatives/${videoId}/${filename}`; },
+    });
+    expect(result).toEqual({ uploaded: 1, failed: 1 });
+    expect(uploads).toEqual(["v1/video.mp4", "v1/cover.jpg"]);
+    expect(creativeReadModel(db, "v1")).toMatchObject({ videoUrl: "/media/creatives/v1/video.mp4", coverUrl: "/media/creatives/v1/cover.jpg" });
+    // v2 had no preview link: it stays pending for a later batch.
+    expect(creativeMediaBatches(db)).toEqual([{ advertiserId: "adv1", videoIds: ["v2"] }]);
     db.close();
   });
 

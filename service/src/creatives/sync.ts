@@ -203,7 +203,7 @@ export function creativeReadModel(db: ContentLabDatabase, videoId: string): Reco
   const ads = db.prepare("SELECT COUNT(*) AS ads, GROUP_CONCAT(DISTINCT campaign_name) AS campaigns FROM creative_ads WHERE video_id=? AND is_spark=0").get(videoId) as { ads: number; campaigns: string | null };
   const analysis = typeof row.analysis_json === "string" ? JSON.parse(row.analysis_json) as Record<string, unknown> : null;
   return {
-    videoId, fileName: row.file_name, durationS: row.duration_s, coverUrl: row.cover_url, firstSeenAt: row.first_seen_at,
+    videoId, fileName: row.file_name, durationS: row.duration_s, coverUrl: row.cover_url, videoUrl: row.video_url ?? null, firstSeenAt: row.first_seen_at,
     ads: ads.ads, campaigns: (ads.campaigns ?? "").split(",").filter(Boolean).slice(0, 10),
     stats: stats.map((item) => ({ window: item.window_days, country: item.country, spend: item.spend, impressions: item.impressions, clicks: item.clicks, installs: item.installs, registrations: item.registrations })),
     summaryZh: row.summary_zh, analyzedAt: row.analyzed_at, analysis,

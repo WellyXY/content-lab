@@ -195,6 +195,9 @@ const MIGRATIONS = [
     evidence_json TEXT NOT NULL, document_json TEXT NOT NULL, UNIQUE (country, version)
   ) STRICT;
   `,
+  // 11: regular creatives keep their video and a cover chosen from the video on the Site.
+  `ALTER TABLE creatives ADD COLUMN video_url TEXT;
+   ALTER TABLE creatives ADD COLUMN media_attempts INTEGER NOT NULL DEFAULT 0;`,
 ] as const;
 
 export function migrate(db: DatabaseSync): void {

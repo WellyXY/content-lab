@@ -142,6 +142,24 @@ export class SiteSyncClient {
     }
   }
 
+  /** PUT a regular ad creative's video or cover to the Site's media storage; returns its public path. */
+  async uploadCreativeFile(videoId: string, filename: "video.mp4" | "cover.jpg", path: string): Promise<string> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 120_000);
+    try {
+      const response = await this.fetchImpl(`${this.baseUrl}/api/local-worker/creatives/${encodeURIComponent(videoId)}/${filename}`, {
+        method: "PUT", signal: controller.signal,
+        headers: { authorization: `Bearer ${this.options.token}`, "content-type": filename === "video.mp4" ? "video/mp4" : "image/jpeg" },
+        body: readFileSync(path),
+      });
+      const payload = await response.json().catch(() => null) as { url?: unknown } | null;
+      if (!response.ok || typeof payload?.url !== "string") throw new Error(`Creative upload returned ${response.status}: ${JSON.stringify(payload).slice(0, 300)}`);
+      return payload.url;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async pushEvents(events: SiteSyncEvent[]): Promise<string[]> {
     if (events.length === 0) return [];
     const result = await this.post<{ accepted?: unknown; ignored?: unknown }>("/api/local-worker/sync", { workerId: this.options.workerId, events }, `sync:${events.map((event) => event.id).join(",")}`);

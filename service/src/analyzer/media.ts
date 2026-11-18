@@ -91,7 +91,7 @@ async function fetchTrustedMedia(raw: string, signal: AbortSignal): Promise<Resp
   throw new Error("Media CDN exceeded the redirect limit");
 }
 
-async function download(raw: string, target: string): Promise<void> {
+export async function download(raw: string, target: string): Promise<void> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60_000);
   try {

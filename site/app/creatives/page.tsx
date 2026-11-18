@@ -1,11 +1,12 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { BookOpenText, ChevronLeft, ChevronRight, Clapperboard, Search } from "lucide-react";
 
 import { formatMoney } from "@/lib/ads";
-import { countriesBySpend, creativeTotals, listCreatives, type Creative, type CreativeSort } from "@/lib/creatives";
+import { countriesBySpend, listCreatives, type Creative, type CreativeSort } from "@/lib/creatives";
 import { compactNumber } from "@/lib/content-lab";
 import { useLocale } from "@/lib/i18n";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +31,7 @@ export default function CreativesPage() {
   const [country, setCountry] = useState("all");
   const [sort, setSort] = useState<CreativeSort>("spend");
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState<string | null>(null);
+  const router = useRouter();
   const [paging, setPaging] = useState({ key: "", page: 0 });
 
   useEffect(() => {
@@ -105,13 +106,12 @@ export default function CreativesPage() {
                 <TableHead className="pr-5 text-right text-xs text-muted-foreground">{t("注册成本", "Cost/reg")}</TableHead>
               </TableRow></TableHeader>
               <TableBody>{visible.map(({ creative, totals }) => (
-                <Fragment key={creative.videoId}>
-                  <TableRow className="cursor-pointer border-white/8 hover:bg-white/[0.025]" onClick={() => setOpen(open === creative.videoId ? null : creative.videoId)}>
+                  <TableRow className="cursor-pointer border-white/8 hover:bg-white/[0.025]" key={creative.videoId} onClick={() => router.push(`/creatives/${encodeURIComponent(creative.videoId)}?window=${days}`)}>
                     <TableCell className="max-w-[360px] py-3 pl-5">
                       <div className="flex items-center gap-3">
                         <div className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-lg border border-white/10 bg-black text-muted-foreground">{creative.coverUrl ? <img alt="" className="h-full w-full object-cover" loading="lazy" src={creative.coverUrl} /> : <Clapperboard className="size-4" />}</div>
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{creative.fileName ?? creative.videoId}</p>
+                          <Link className="block truncate text-sm font-medium hover:underline" href={`/creatives/${encodeURIComponent(creative.videoId)}?window=${days}`} onClick={(event) => event.stopPropagation()}>{creative.fileName ?? creative.videoId}</Link>
                           <p className="mt-1 flex items-center gap-1.5 truncate text-xs text-muted-foreground">{t(`${creative.ads} 条广告`, `${creative.ads} ads`)}{creative.analyzedAt ? <Badge className="border-primary/20 bg-primary/8 px-1.5 py-0 text-[10px] text-primary" variant="outline">{t("已分析", "Analyzed")}</Badge> : null}</p>
                         </div>
                       </div>
@@ -123,8 +123,6 @@ export default function CreativesPage() {
                     <TableCell className="text-right font-mono">{compactNumber(totals.registrations)}</TableCell>
                     <TableCell className="pr-5 text-right font-mono font-semibold text-cyan-200">{formatMoney(totals.cpr)}</TableCell>
                   </TableRow>
-                  {open === creative.videoId ? <TableRow className="border-white/8 bg-white/[0.015] hover:bg-white/[0.015]"><TableCell className="px-5 py-4" colSpan={7}><CreativeDetail creative={creative} days={days} hasGuide={hasGuide} /></TableCell></TableRow> : null}
-                </Fragment>
               ))}</TableBody>
             </Table>
           ) : (
@@ -143,39 +141,5 @@ export default function CreativesPage() {
         </CardContent>
       </Card>
     </>
-  );
-}
-
-/** Spend by country for the window, the content analysis and the keyframes of one creative. */
-function CreativeDetail({ creative, days, hasGuide }: { creative: Creative; days: number; hasGuide: (country: string) => boolean }) {
-  const { t, lang } = useLocale();
-  const byCountry = [...new Set(creative.stats.filter((item) => item.window === days).map((item) => item.country))]
-    .map((country) => ({ country, totals: creativeTotals(creative, days, country) })).sort((a, b) => b.totals.spend - a.totals.spend);
-  const analysis = creative.analysis;
-  return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      <div>
-        <p className="mb-2 text-xs text-muted-foreground">{t(`分国家（最近 ${days} 天）`, `By country (last ${days} days)`)}</p>
-        <table className="w-full text-sm">
-          <thead><tr className="text-xs text-muted-foreground"><th className="py-1 text-left font-normal">{t("国家", "Country")}</th><th className="text-right font-normal">{t("花费", "Spend")}</th><th className="text-right font-normal">{t("注册", "Regs")}</th><th className="text-right font-normal">{t("注册成本", "Cost/reg")}</th><th className="text-right font-normal">CPI</th></tr></thead>
-          <tbody>{byCountry.map(({ country, totals }) => (
-            <tr className="border-t border-white/6" key={country}>
-              <td className="py-1.5 font-mono">{hasGuide(country) ? <Link className="text-primary hover:underline" href={`/creatives/guide?country=${country}`} onClick={(event) => event.stopPropagation()}>{country}</Link> : country}</td>
-              <td className="text-right font-mono">{formatMoney(totals.spend)}</td><td className="text-right font-mono">{compactNumber(totals.registrations)}</td>
-              <td className="text-right font-mono">{formatMoney(totals.cpr)}</td><td className="text-right font-mono">{formatMoney(totals.cpi)}</td>
-            </tr>
-          ))}</tbody>
-        </table>
-        {creative.campaigns.length ? <p className="mt-3 text-xs leading-5 text-muted-foreground">{t("广告系列：", "Campaigns: ")}{creative.campaigns.join("、")}</p> : null}
-      </div>
-      <div className="space-y-3 text-sm">
-        {analysis ? <>
-          <p className="leading-6">{lang === "en" ? analysis.summary_en || creative.summaryZh : creative.summaryZh}</p>
-          {analysis.hook_translation_zh ? <p className="text-muted-foreground"><span className="text-foreground/80">{t("开场钩子：", "Hook: ")}</span>{analysis.hook_translation_zh}</p> : null}
-          {analysis.formula_zh ? <p className="text-muted-foreground"><span className="text-foreground/80">{t("公式：", "Formula: ")}</span>{analysis.formula_zh}</p> : null}
-          {analysis.keyframes?.length ? <div className="flex gap-2 overflow-x-auto pb-1">{analysis.keyframes.slice(0, 8).map((frame) => <img alt="" className="h-28 w-16 shrink-0 rounded border border-white/8 object-cover" key={frame} loading="lazy" src={frame} />)}</div> : null}
-        </> : <p className="text-muted-foreground">{t("内容分析只针对每个国家花费前 10 的素材。", "Content analysis covers each country's top 10 creatives by spend.")}</p>}
-      </div>
-    </div>
   );
 }
