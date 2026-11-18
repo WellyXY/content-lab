@@ -78,6 +78,22 @@ describe("regular ad creatives", () => {
     db.close();
   });
 
+  it("keeps videos shared from another account without details and reads the rest", async () => {
+    const db = openDatabase(":memory:");
+    db.prepare("INSERT INTO ad_accounts(advertiser_id, name, updated_at) VALUES ('adv1', 'A', 't')").run();
+    const tiktok = fakeTikTok();
+    const call = async (planned: PlannedCall) => {
+      const input = planned.input as { tool_name?: string; params?: { video_ids?: string[] } };
+      if (input.tool_name === "file_video_ad_info_get" && JSON.stringify(planned.input).includes("v2")) throw new Error("TikTok API error 40001: Insufficient permissions for some videos: [v2].");
+      return tiktok.call(planned);
+    };
+    const result = await runCreativeSync(db, { call, sleep: async () => {} }, NOW);
+    expect(result).toMatchObject({ status: "ok", creatives: 2 });
+    expect(creativeReadModel(db, "v1")).toMatchObject({ fileName: "ID-261113-a.mp4" });
+    expect(creativeReadModel(db, "v2")).toMatchObject({ fileName: null });
+    db.close();
+  });
+
   it("picks each country's top creatives by 30-day spend and writes a guide from analyzed ones only, numbers kept out of prose", async () => {
     const db = openDatabase(":memory:");
     for (const [index, spend] of [500, 400, 300, 200].entries()) {

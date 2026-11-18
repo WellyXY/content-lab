@@ -91,6 +91,14 @@ export interface CreativeSyncResult { status: "ok" | "partial" | "failed"; calls
 /** The connector app's rate limit is shared with other tools: back off and retry instead of failing the sync. */
 const RATE_LIMITED = /QPS limit|40100|rate limit|too many requests/i;
 const RATE_LIMIT_WAITS_MS = [3_000, 10_000, 30_000, 60_000];
+const PERMISSION_DENIED = /Insufficient permissions for some videos/i;
+
+/** The video ids a "40001 Insufficient permissions for some videos: [...]" error names. */
+export function deniedVideoIds(message: string): string[] {
+  if (!PERMISSION_DENIED.test(message)) return [];
+  const list = /\[([^\]]*)\]/.exec(message.slice(message.search(PERMISSION_DENIED)))?.[1] ?? "";
+  return list.split(/[\s,'"]+/).filter(Boolean);
+}
 
 export async function runCreativeSync(db: ContentLabDatabase, deps: { call: (call: PlannedCall) => Promise<unknown>; sleep?: (ms: number) => Promise<void> }, now = new Date(), options: { maxCalls?: number } = {}): Promise<CreativeSyncResult> {
   const at = now.toISOString();
@@ -101,7 +109,9 @@ export async function runCreativeSync(db: ContentLabDatabase, deps: { call: (cal
       if (calls >= (options.maxCalls ?? CREATIVE_MAX_CALLS)) throw new Error("call budget exhausted");
       calls += 1;
       try { return await deps.call(call); } catch (error) {
-        const limited = RATE_LIMITED.test(error instanceof Error ? error.message : String(error));
+        const message = error instanceof Error ? error.message : String(error);
+        if (PERMISSION_DENIED.test(message)) throw error;
+        const limited = RATE_LIMITED.test(message);
         const waits = limited ? RATE_LIMIT_WAITS_MS : [2_000];
         if (attempt >= waits.length) throw error;
         await sleep(waits[attempt]!);
@@ -151,7 +161,19 @@ export async function runCreativeSync(db: ContentLabDatabase, deps: { call: (cal
       const videos = [...new Set([...totals.values()].map((item) => item.videoId))].filter((videoId) => [...videoOf.values()].includes(videoId) && !db.prepare("SELECT 1 FROM creatives WHERE video_id=?").get(videoId));
       const saveVideo = db.prepare(`INSERT OR IGNORE INTO creatives(video_id, advertiser_id, file_name, material_id, duration_s, cover_url, first_seen_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
       for (const batch of batches(videos, 60)) {
-        for (const info of parseVideoInfo(await request(videoInfoCall(advertiserId, batch)))) saveVideo.run(info.videoId, advertiserId, info.fileName, info.materialId, info.durationS, info.coverUrl, at, at);
+        // Videos shared from another account cannot be read here: keep them without details and read the rest.
+        let pending = batch;
+        while (pending.length) {
+          try {
+            for (const info of parseVideoInfo(await request(videoInfoCall(advertiserId, pending)))) saveVideo.run(info.videoId, advertiserId, info.fileName, info.materialId, info.durationS, info.coverUrl, at, at);
+            pending = [];
+          } catch (error) {
+            const denied = new Set(deniedVideoIds(error instanceof Error ? error.message : String(error)).filter((id) => pending.includes(id)));
+            if (!denied.size) throw error;
+            for (const videoId of denied) saveVideo.run(videoId, advertiserId, null, null, null, null, at, at);
+            pending = pending.filter((id) => !denied.has(id));
+          }
+        }
       }
     }
     // Every account is read: the windows are replaced as a whole, so a video that stopped spending leaves them.
