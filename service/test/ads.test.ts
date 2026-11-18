@@ -48,9 +48,11 @@ describe("ads proxy guard", () => {
     expect((await guard("mcp__claude_ai_Gmail__send_message", {})).behavior).toBe("deny");
   });
 
-  it("never lets tool_execute reach anything but ad_get", async () => {
-    const write = { tool: TIKTOK_TOOLS.execute, input: { tool_name: "ad_status_update", params: { advertiser_id: "adv1" } } };
-    expect(() => createProxyGuard(write)).toThrow(/ad_get/);
+  it("never lets tool_execute reach anything but reading ads and video creatives", async () => {
+    for (const tool_name of ["ad_status_update", "ad_update", "adgroup_budget_update", "file_video_ad_update", "file_video_ad_upload"]) {
+      expect(() => createProxyGuard({ tool: TIKTOK_TOOLS.execute, input: { tool_name, params: { advertiser_id: "adv1" } } })).toThrow(/reading ads and video creatives/);
+    }
+    expect(() => createProxyGuard({ tool: TIKTOK_TOOLS.execute, input: { tool_name: "file_video_ad_info_get", params: { advertiser_id: "adv1", video_ids: ["v1"] } } })).not.toThrow();
   });
 
   it("takes the raw TikTok JSON from the tool result, not the model's reply", () => {
@@ -75,6 +77,20 @@ describe("ads proxy guard", () => {
     ];
     expect(extractToolResult(note(file), TIKTOK_TOOLS.execute, root)).toEqual(JSON.parse(ok({ list: [{ ad_id: "a1" }] })));
     expect(() => extractToolResult(note("/etc/hosts"), TIKTOK_TOOLS.execute, root)).toThrow(/outside/);
+    // Newer CLI wording.
+    const persisted = (path: string) => [
+      { type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name: TIKTOK_TOOLS.execute, input: {} }] } },
+      { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1", content: [{ type: "text", text: `<persisted-output>\nOutput too large (234.0KB). Full output saved to: ${path}\n\nPreview (first 2KB):\n{"code":0` }] }] } },
+    ];
+    expect(extractToolResult(persisted(file), TIKTOK_TOOLS.execute, root)).toEqual(JSON.parse(ok({ list: [{ ad_id: "a1" }] })));
+    expect(() => extractToolResult(persisted("/etc/hosts"), TIKTOK_TOOLS.execute, root)).toThrow(/outside/);
+    // Newer CLIs name the saved file after the call's tool_use id.
+    const byId = join(root, "s1", "tool-results", "t1.json");
+    writeFileSync(byId, JSON.stringify([{ type: "text", text: ok({ list: [{ ad_id: "a2" }] }) }]));
+    expect(extractToolResult(persisted(byId), TIKTOK_TOOLS.execute, root)).toEqual(JSON.parse(ok({ list: [{ ad_id: "a2" }] })));
+    const other = join(root, "s1", "tool-results", "t9.json");
+    writeFileSync(other, ok({ list: [] }));
+    expect(() => extractToolResult(persisted(other), TIKTOK_TOOLS.execute, root)).toThrow(/not this call/);
     rmSync(root, { recursive: true, force: true });
   });
 });

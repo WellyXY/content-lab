@@ -69,7 +69,7 @@ export function describeTranscript(transcript: Transcript | null): string {
 /** Every model-written text comes in Simplified Chinese and English so the Site can switch languages. */
 export const LANGUAGE_RULE = "Language: every field ending in `_zh` is written in Simplified Chinese (简体中文, never Traditional characters); every field ending in `_en` says the same thing in natural English. Verbatim fields (`hook_text`, `on_screen_text`, `spoken`, `frame_texts`) keep the post's original language.";
 
-const SCRIPT_RULES = [
+export const SCRIPT_RULES = [
   "Build `script_segments` as the complete timed script of the post, in order:",
   "- Videos: split into beats wherever the visual action, on-screen text or speaker changes. Segments are consecutive and together cover 0s to the end of the video. `start_s`/`end_s` are seconds; `position` is a label such as \"0–3.2s\"; `frames` lists the frame numbers inside the span.",
   "- Carousels: exactly one segment per attached image. `position` is \"图 N\", `start_s` and `end_s` are both N, `frames` is [N], and spoken fields are empty.",

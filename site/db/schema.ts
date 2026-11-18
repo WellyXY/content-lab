@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const posts = sqliteTable(
   "posts",
@@ -204,3 +204,26 @@ export const ingestRateLimits = sqliteTable("ingest_rate_limits", {
   count: integer("count").notNull().default(0),
   expiresAt: text("expires_at").notNull(),
 });
+
+/** Regular (non-Spark) TikTok ad videos with spend, as the worker reads them; `model_json` is the worker's read model. */
+export const creatives = sqliteTable("creatives", {
+  videoId: text("video_id").primaryKey(),
+  modelJson: text("model_json").notNull(),
+  spend30: real("spend_30").notNull().default(0),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/** Per-country playbooks for regular ad creatives, written from each country's top-spend videos. */
+export const creativeGuides = sqliteTable(
+  "creative_guides",
+  {
+    id: text("id").primaryKey(),
+    country: text("country").notNull(),
+    version: integer("version").notNull(),
+    createdAt: text("created_at").notNull(),
+    model: text("model"),
+    documentJson: text("document_json").notNull(),
+    evidenceJson: text("evidence_json").notNull(),
+  },
+  (table) => [uniqueIndex("idx_creative_guides_country_version").on(table.country, table.version)],
+);

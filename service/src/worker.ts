@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { resetAgentThread, runAgentTurn } from "./agent/agent.js";
 import { AnalyzerQuotaError } from "./analyzer/claude.js";
@@ -16,6 +18,9 @@ import { createContentLabFeishuBot } from "./feishu/bot.js";
 import { createFeishuDocReader } from "./feishu/docs.js";
 import { loadSheetSyncs, runSheetSyncs, sheetSyncDue } from "./feishu/sheet-sync.js";
 import { createFeishuDocWriter } from "./digest/doc.js";
+import { analyzeCreative, creativeMediaId, topCreativesByCountry } from "./creatives/analyze.js";
+import { countriesDueForGuide, generateCreativeGuide } from "./creatives/guide.js";
+import { creativeSyncDue, parseVideoInfo, runCreativeSync, syncCreative, videoInfoCall } from "./creatives/sync.js";
 import { digestDue, runDailyDigest } from "./digest/run.js";
 import { createFeishuWebhookTransport, deliverAlertOutbox, type FeishuAlertTransport } from "./feishu.js";
 import { completeJob, deferJob, enqueueJob, failJob, leaseJobs, type Job } from "./jobs/queue.js";
@@ -27,6 +32,7 @@ import { drainPendingBinds } from "./bind.js";
 import { failStaleRecreations, runRecreation } from "./recreate/run.js";
 import { runSchedulerCycle } from "./scheduler.js";
 import { flushSyncOutbox, pullRemoteJobs, SiteSyncClient } from "./sync/client.js";
+import { uploadKeyframes } from "./sync/media.js";
 
 const config = loadConfig();
 const db = openDatabase(config.dbPath);
@@ -74,9 +80,61 @@ async function pushPendingEvents(): Promise<void> {
   }
 }
 
+/** Covers from TikTok are signed links that expire: copy each new one to the Site once. */
+async function publishCreativeCovers(database: ContentLabDatabase): Promise<void> {
+  if (!config.siteSyncUrl || !config.siteSyncToken) return;
+  const pending = database.prepare("SELECT video_id, cover_url FROM creatives WHERE cover_url LIKE 'http%' LIMIT 500").all() as Array<{ video_id: string; cover_url: string }>;
+  for (const creative of pending) {
+    try {
+      const response = await fetch(creative.cover_url, { signal: AbortSignal.timeout(30_000) });
+      if (!response.ok) continue;
+      const dir = join(config.mediaDir, creativeMediaId(creative.video_id));
+      mkdirSync(dir, { recursive: true });
+      const path = join(dir, "cover.jpg");
+      writeFileSync(path, Buffer.from(await response.arrayBuffer()));
+      const [url] = await uploadKeyframes(config, creativeMediaId(creative.video_id), [path]);
+      if (url) { database.prepare("UPDATE creatives SET cover_url=? WHERE video_id=?").run(url, creative.video_id); syncCreative(database, creative.video_id); }
+    } catch { /* tried again after the next sync */ }
+  }
+}
+
 async function processJob(database: ContentLabDatabase, job: Job): Promise<void> {
   if (job.kind === "ingest") {
     await ingestPost(database, provider, job.payload as { url: string; market?: string | null; projectTag?: string | null; boundBy?: string | null; sitePostId?: string | null });
+    return;
+  }
+  if (job.kind === "creative_sync") {
+    const result = await runCreativeSync(database, { call: (call) => runProxyCall(call, { model: config.adsModel }) });
+    log("creatives_synced", { ...result });
+    if (result.status === "failed") throw new Error(`Creative sync failed: ${result.error ?? "unknown"}`);
+    await publishCreativeCovers(database);
+    // Each country's top creatives by spend get the content analysis the guides are written from.
+    for (const top of topCreativesByCountry(database).values()) {
+      for (const videoId of top) {
+        const done = database.prepare("SELECT analysis_json IS NOT NULL AS done FROM creatives WHERE video_id=?").get(videoId) as { done: number } | undefined;
+        if (done && !done.done) enqueueJob(database, { kind: "creative_analyze", payload: { videoId }, idempotencyKey: `creative_analyze:${videoId}`, maxAttempts: 2 });
+      }
+    }
+    return;
+  }
+  if (job.kind === "creative_analyze") {
+    const { videoId } = job.payload as { videoId: string };
+    try {
+      await analyzeCreative(database, config, videoId, {
+        previewUrl: async (id, advertiserId) => parseVideoInfo(await runProxyCall(videoInfoCall(advertiserId, [id]), { model: config.adsModel }))[0]?.previewUrl ?? null,
+        ...(config.siteSyncUrl && config.siteSyncToken ? { publish: (mediaId: string, frames: string[]) => uploadKeyframes(config, mediaId, frames.slice(0, 12)) } : {}),
+      });
+    } catch (error) {
+      // A creative that cannot be analyzed must not hold its country's guide back forever.
+      if (job.attempts >= job.maxAttempts) database.prepare("UPDATE creatives SET analysis_error=? WHERE video_id=?").run((error instanceof Error ? error.message : String(error)).slice(0, 500), videoId);
+      throw error;
+    }
+    return;
+  }
+  if (job.kind === "creative_guide") {
+    const { country } = job.payload as { country: string };
+    const guide = await generateCreativeGuide(database, config, country);
+    log("creative_guide_generated", { country, version: guide?.version ?? null });
     return;
   }
   if (job.kind === "ads_sync") {
@@ -241,7 +299,7 @@ async function processJob(database: ContentLabDatabase, job: Job): Promise<void>
 
 const QUOTA_PAUSE_MS = 30 * 60_000;
 /** Jobs that call the model share the analysis pool and its quota pause. */
-const MODEL_JOB_KINDS = ["analyze", "assess", "evaluate", "playbook"];
+const MODEL_JOB_KINDS = ["analyze", "assess", "evaluate", "playbook", "creative_analyze", "creative_guide"];
 /**
  * Recreations run one at a time in their own slot. The lease covers the worst case of every stage
  * (init 2 + transcription 10 + agent 30 + render 20 + re-encode 10 + uploads 4 minutes) with room to spare.
@@ -293,7 +351,7 @@ async function handleJob(job: Job): Promise<void> {
 function startAnalyses(): void {
   if (Date.now() < analysisPausedUntil) return;
   if (!adsRunning) {
-    const ads = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ADS_LEASE_MS, kinds: ["ads_sync"] })[0];
+    const ads = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ADS_LEASE_MS, kinds: ["ads_sync", "creative_sync"] })[0];
     if (ads) {
       adsRunning = true;
       void handleJob(ads).finally(() => { adsRunning = false; });
@@ -324,6 +382,11 @@ export async function runWorkerCycle(): Promise<void> {
   if (pending.queued) log("pending_binds_queued", pending);
   const digestKey = digestDue(new Date());
   if (digestKey && config.dailyDigest) enqueueJob(db, { kind: "daily_digest", payload: { target: "group" }, idempotencyKey: digestKey, maxAttempts: 2 });
+  const creativeKey = creativeSyncDue(new Date());
+  if (creativeKey) enqueueJob(db, { kind: "creative_sync", payload: {}, idempotencyKey: creativeKey, maxAttempts: 2 });
+  for (const country of countriesDueForGuide(db)) {
+    enqueueJob(db, { kind: "creative_guide", payload: { country }, idempotencyKey: `creative_guide:${country}:${new Date().toISOString().slice(0, 10)}`, maxAttempts: 2 });
+  }
   const sheetKey = sheetSyncDue(new Date());
   if (sheetKey) enqueueJob(db, { kind: "sheet_sync", payload: {}, idempotencyKey: sheetKey, maxAttempts: 2 });
   enqueueJob(db, { kind: "ads_sync", payload: {}, idempotencyKey: adsSyncDue(new Date()), maxAttempts: 2 });
@@ -338,7 +401,7 @@ export async function runWorkerCycle(): Promise<void> {
   await pushPendingEvents();
   startAnalyses();
   for (let processed = 0; processed < 20; processed += 1) {
-    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, excludeKinds: [...MODEL_JOB_KINDS, "recreate", "daily_digest", "ads_sync"] })[0];
+    const job = leaseJobs(db, { workerId: config.workerId, limit: 1, leaseMs: ANALYSIS_LEASE_MS, excludeKinds: [...MODEL_JOB_KINDS, "recreate", "daily_digest", "ads_sync", "creative_sync"] })[0];
     if (!job) break;
     await handleJob(job);
     // An ingest enqueues its analysis; start it right away.
@@ -370,7 +433,7 @@ async function main(): Promise<void> {
       if (once) await Promise.allSettled([...inflightAnalyses]);
       if (once || stopping) break;
       // Analyses are refilled between cycles, so only other due work shortens the wait.
-      const due = db.prepare("SELECT 1 FROM jobs WHERE kind NOT IN ('analyze','assess','evaluate','playbook') AND status IN ('queued','failed') AND run_at<=? AND attempts<max_attempts LIMIT 1")
+      const due = db.prepare("SELECT 1 FROM jobs WHERE kind NOT IN ('analyze','assess','evaluate','playbook','creative_analyze','creative_guide') AND status IN ('queued','failed') AND run_at<=? AND attempts<max_attempts LIMIT 1")
         .get(new Date().toISOString());
       const until = Date.now() + (due ? 1_000 : Math.max(1_000, 30_000 - (Date.now() - started)));
       while (!stopping && Date.now() < until) {

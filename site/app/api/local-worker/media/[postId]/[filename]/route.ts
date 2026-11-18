@@ -12,8 +12,10 @@ export async function PUT(request: Request, context: Context) {
   if (!mime || !["image/jpeg", "image/png", "image/webp"].includes(mime)) return jsonError("只接受图片 · Images only", 415);
   if (Number(request.headers.get("content-length") ?? 0) > MAX_FRAME_BYTES) return jsonError("图片超过 5 MiB · Image exceeds 5 MiB", 413);
   try {
-    const post = await getD1().prepare("SELECT id FROM posts WHERE id = ? LIMIT 1").bind(postId).first();
-    if (!post) return jsonError("帖子尚未同步 · Post not synced yet", 409);
+    // Regular ad creatives use media ids "cr-<video id>"; they need no post.
+    const creative = postId.startsWith("cr-");
+    const owner = creative ? true : await getD1().prepare("SELECT id FROM posts WHERE id = ? LIMIT 1").bind(postId).first();
+    if (!owner) return jsonError("帖子尚未同步 · Post not synced yet", 409);
     const reader = request.body?.getReader();
     if (!reader) return jsonError("缺少图片内容 · Missing image content", 400);
     const chunks: Uint8Array[] = [];

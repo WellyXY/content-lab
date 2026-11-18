@@ -174,6 +174,27 @@ const MIGRATIONS = [
     post_id TEXT NOT NULL, report_date TEXT NOT NULL, PRIMARY KEY (post_id, report_date)
   ) STRICT;
   `,
+  `
+  CREATE TABLE creatives (
+    video_id TEXT PRIMARY KEY, advertiser_id TEXT NOT NULL, file_name TEXT, material_id TEXT, duration_s REAL,
+    cover_url TEXT, first_seen_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    analysis_json TEXT, summary_zh TEXT, analyzed_at TEXT, model TEXT, analysis_error TEXT
+  ) STRICT;
+  CREATE TABLE creative_ads (
+    ad_id TEXT PRIMARY KEY, advertiser_id TEXT NOT NULL, video_id TEXT, is_spark INTEGER NOT NULL,
+    ad_name TEXT, campaign_name TEXT, updated_at TEXT NOT NULL
+  ) STRICT;
+  CREATE INDEX creative_ads_video ON creative_ads(video_id);
+  CREATE TABLE creative_stats (
+    video_id TEXT NOT NULL, window_days INTEGER NOT NULL, country TEXT NOT NULL,
+    spend REAL NOT NULL, impressions INTEGER NOT NULL, clicks INTEGER NOT NULL, installs INTEGER NOT NULL, registrations INTEGER NOT NULL,
+    refreshed_at TEXT NOT NULL, PRIMARY KEY (video_id, window_days, country)
+  ) STRICT;
+  CREATE TABLE creative_guides (
+    id TEXT PRIMARY KEY, country TEXT NOT NULL, version INTEGER NOT NULL, created_at TEXT NOT NULL, model TEXT NOT NULL,
+    evidence_json TEXT NOT NULL, document_json TEXT NOT NULL, UNIQUE (country, version)
+  ) STRICT;
+  `,
 ] as const;
 
 export function migrate(db: DatabaseSync): void {

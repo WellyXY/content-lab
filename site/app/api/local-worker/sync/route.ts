@@ -14,7 +14,7 @@ import { getMediaBucket } from "@/lib/server/media-storage";
 
 const eventSchema = z.object({
   id: z.string().min(1).max(160),
-  type: z.enum(["post", "snapshot", "features", "prediction", "job", "alert", "playbook", "post_deleted", "recreation", "recreation_deleted"]),
+  type: z.enum(["post", "snapshot", "features", "prediction", "job", "alert", "playbook", "post_deleted", "recreation", "recreation_deleted", "creative", "creative_guide"]),
   entityKey: z.string().min(1).max(160),
   occurredAt: z.string().datetime({ offset: true }),
   payload: z.record(z.string(), z.unknown()),
@@ -80,6 +80,8 @@ async function applyEvent(db: D1Database, event: SyncEvent) {
     case "post_deleted": return syncPostDeleted(db, event);
     case "recreation": return syncRecreation(db, event);
     case "recreation_deleted": return syncRecreationDeleted(db, event);
+    case "creative": return syncCreative(db, event);
+    case "creative_guide": return syncCreativeGuide(db, event);
   }
 }
 
@@ -101,6 +103,28 @@ async function syncRecreation(db: D1Database, event: SyncEvent) {
       nullableString(pick(payload, "coverUrl")), nullableString(pick(payload, "error")), Number(pick(payload, "counts") ?? 1), now, now,
       // Only the worker's own copies say their kind; it corrects rows an older Site release filed as recreations.
       pick(payload, "kind") === "copy" ? 1 : 0).run();
+}
+
+/** A regular ad creative: the worker's whole read model, plus its 30-day spend for sorting. */
+async function syncCreative(db: D1Database, event: SyncEvent) {
+  const videoId = nullableString(pick(event.payload, "videoId")) ?? event.entityKey;
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(videoId)) throw new Error("creative.videoId is invalid");
+  const stats = Array.isArray(event.payload.stats) ? event.payload.stats as Array<{ window?: number; spend?: number }> : [];
+  const spend30 = stats.filter((item) => item.window === 30).reduce((sum, item) => sum + (Number(item.spend) || 0), 0);
+  await db.prepare(`INSERT INTO creatives (video_id, model_json, spend_30, updated_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT(video_id) DO UPDATE SET model_json = excluded.model_json, spend_30 = excluded.spend_30, updated_at = excluded.updated_at`)
+    .bind(videoId, JSON.stringify(event.payload), spend30, event.occurredAt).run();
+}
+
+async function syncCreativeGuide(db: D1Database, event: SyncEvent) {
+  const payload = event.payload;
+  const country = nullableString(pick(payload, "country"));
+  const version = nullableInteger(pick(payload, "version"));
+  if (!country || version === null) throw new Error("creative_guide needs country and version");
+  await db.prepare(`INSERT INTO creative_guides (id, country, version, created_at, model, document_json, evidence_json) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET document_json = excluded.document_json, evidence_json = excluded.evidence_json`)
+    .bind(nullableString(pick(payload, "id")) ?? event.entityKey, country.toUpperCase(), version, nullableString(pick(payload, "createdAt")) ?? event.occurredAt,
+      nullableString(pick(payload, "model")), JSON.stringify(asRecord(pick(payload, "document"))), JSON.stringify(asRecord(pick(payload, "evidence")))).run();
 }
 
 /** The owner removed one recreation or copy: its record and its files go. */

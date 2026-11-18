@@ -1,6 +1,6 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, sep } from "node:path";
+import { basename, join, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
@@ -15,8 +15,8 @@ export const TIKTOK_TOOLS = {
   report: `${PREFIX}report_integrated_get`,
   execute: `${PREFIX}tool_execute`,
 } as const;
-/** The only API the generic dispatcher may reach; it reads ads and changes nothing. */
-const EXECUTE_ALLOWED = new Set(["ad_get"]);
+/** The only APIs the generic dispatcher may reach; they read ads and video creatives and change nothing. */
+const EXECUTE_ALLOWED = new Set(["ad_get", "file_video_ad_info_get"]);
 
 export type PlannedCall = { tool: string; input: Record<string, unknown> };
 type Decision = { behavior: "allow"; updatedInput: Record<string, unknown> } | { behavior: "deny"; message: string };
@@ -24,7 +24,7 @@ type Decision = { behavior: "allow"; updatedInput: Record<string, unknown> } | {
 /** Permit exactly the planned call: same tool, deep-equal arguments. Everything else is refused before it runs. */
 export function createProxyGuard(call: PlannedCall): (tool: string, input: Record<string, unknown>) => Promise<Decision> {
   if (call.tool === TIKTOK_TOOLS.execute && !EXECUTE_ALLOWED.has(String(call.input.tool_name))) {
-    throw new Error("tool_execute is limited to ad_get");
+    throw new Error("tool_execute is limited to reading ads and video creatives");
   }
   if (!Object.values(TIKTOK_TOOLS).includes(call.tool as never)) throw new Error(`Not a planned TikTok tool: ${call.tool}`);
   return async (tool, input) => tool === call.tool && isDeepStrictEqual(input, call.input)
@@ -36,16 +36,29 @@ type StreamMessage = { type: string; message?: { content?: unknown } };
 
 /** Where the CLI saves tool results that exceed its output limit: under its config folder, which the worker may set to its own login. */
 export const savedResultsRoot = (env: NodeJS.ProcessEnv = process.env): string => join(env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "projects");
-const SAVED_NOTE = /^Error: result \([\d,]+ characters[^)]*\) exceeds maximum allowed tokens\. Output has been saved to (\S+?)\.\s/;
+// Two CLI wordings: the older "Error: result (…) exceeds maximum allowed tokens. Output has been saved to PATH." and,
+// since Claude Code 2.1.3xx, "<persisted-output>\nOutput too large (…). Full output saved to: PATH\n…".
+const SAVED_NOTE = /^(?:Error: result \([\d,]+ characters[^)]*\) exceeds maximum allowed tokens\. Output has been saved to (\S+?)\.\s|<persisted-output>\s*Output too large \([^)]*\)\. Full output saved to: (\S+))/;
 
 /** A result too large for the CLI arrives as a note pointing at the saved file; read the raw output from there. */
-function savedResult(text: string, root: string): string | null {
+function savedResult(text: string, root: string, toolUseId: string): string | null {
   const match = text.match(SAVED_NOTE);
   if (!match) return null;
-  const path = realpathSync(match[1]!);
+  const path = realpathSync((match[1] ?? match[2])!);
   const base = realpathSync(root);
-  if (!path.startsWith(base + sep) || !/TikTok_for_Business/.test(path)) throw new Error(`Saved tool result is outside ${root}`);
-  return readFileSync(path, "utf8");
+  // Older CLIs name the file after the TikTok tool; newer ones after this call's tool_use id (toolu_….json).
+  const name = basename(path);
+  const ownFile = /TikTok_for_Business/.test(name) || name === `${toolUseId}.json` || name === `${toolUseId}.txt`;
+  if (!path.startsWith(base + sep) || !ownFile) throw new Error(`Saved tool result ${path} is outside ${root} or not this call's`);
+  const raw = readFileSync(path, "utf8");
+  // Newer CLIs save the tool's content blocks ([{type:"text",text:"…"}]); older ones the raw text itself.
+  try {
+    const blocks = JSON.parse(raw) as unknown;
+    if (Array.isArray(blocks) && blocks.length && blocks.every((block) => block && typeof block === "object" && (block as { type?: unknown }).type === "text")) {
+      return blocks.map((block) => String((block as { text?: unknown }).text ?? "")).join("");
+    }
+  } catch { /* not JSON: raw text */ }
+  return raw;
 }
 
 /** The raw TikTok response of the planned tool, taken from the tool result itself; the model's own reply is ignored. */
@@ -63,7 +76,7 @@ export function extractToolResult(messages: readonly StreamMessage[], tool: stri
       if (block.type !== "tool_result" || !block.tool_use_id || !ids.has(block.tool_use_id) || block.is_error) continue;
       const parts = Array.isArray(block.content) ? block.content as Array<{ type: string; text?: string }> : [{ type: "text", text: String(block.content) }];
       const text = parts.filter((part) => part.type === "text").map((part) => part.text ?? "").join("");
-      return JSON.parse(savedResult(text, savedRoot) ?? text) as unknown;
+      return JSON.parse(savedResult(text, savedRoot, block.tool_use_id) ?? text) as unknown;
     }
   }
   throw new Error(`no tool result for ${tool}`);

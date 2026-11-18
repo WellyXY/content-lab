@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Link2, ListVideo, Plus, Radio, BookOpenText, Gauge } from "lucide-react";
+import { LayoutDashboard, Link2, ListVideo, Plus, Radio, BookOpenText, Gauge, Clapperboard } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 const links: Array<{ href: string; label: [string, string]; icon: typeof LayoutDashboard }> = [
   { href: "/", label: ["总览", "Overview"], icon: LayoutDashboard },
   { href: "/posts", label: ["帖子", "Posts"], icon: ListVideo },
+  { href: "/creatives", label: ["常规素材", "Creatives"], icon: Clapperboard },
   { href: "/playbook", label: ["爆款文档", "Playbook"], icon: BookOpenText },
   { href: "/calibration", label: ["校准", "Calibration"], icon: Gauge },
   { href: "/bind", label: ["绑定", "Bind"], icon: Link2 },
@@ -80,7 +81,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         <main className="min-w-0 px-4 pb-24 pt-7 sm:px-6 lg:px-8 lg:pb-10 lg:pt-9">{children}</main>
       </div>
 
-      <nav aria-label={t("移动端导航", "Mobile navigation")} className="fixed inset-x-3 bottom-3 z-50 grid grid-cols-4 rounded-2xl border border-white/10 bg-[#10151e]/95 p-1.5 shadow-2xl backdrop-blur-xl lg:hidden">
+      <nav aria-label={t("移动端导航", "Mobile navigation")} className="fixed inset-x-3 bottom-3 z-50 grid grid-cols-6 rounded-2xl border border-white/10 bg-[#10151e]/95 p-1.5 shadow-2xl backdrop-blur-xl lg:hidden">
         {links.map((link) => {
           const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
           const Icon = link.icon;
