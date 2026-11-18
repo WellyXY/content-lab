@@ -269,9 +269,10 @@ function recordUnavailable(
   `).run(options.terminal ? 1 : 0, options.terminal ? 1 : 0, error.slice(0, 500), options.terminal ? 1 : 0,
     new Date(Date.parse(now) + 15 * 60_000).toISOString(), now, post.id);
   const failures = (db.prepare("SELECT capture_failures FROM posts WHERE id=?").get(post.id) as { capture_failures: number }).capture_failures;
-  if (failures >= 3) {
+  // Brief TikWM outages recover on their own: alert only after a long run of failures, once per post per day.
+  if (failures >= CAPTURE_FAILURE_ALERT_AT) {
     insertAlert(db, {
-      postId: post.id, rule: "ops_capture_failures", dedupeKey: `ops:capture:${post.id}:${bucket}`,
+      postId: post.id, rule: "ops_capture_failures", dedupeKey: `ops:capture:${post.id}:${now.slice(0, 10)}`,
       payload: { postId: post.id, videoId: post.video_id, failures, error },
     }, now);
   }
@@ -304,6 +305,7 @@ export async function ingestPost(
 }
 
 /** How long a post must be invisible to every source before tracking stops. */
+export const CAPTURE_FAILURE_ALERT_AT = 6;
 export const REMOVED_AFTER_MS = 24 * 3_600_000;
 
 export async function capturePost(

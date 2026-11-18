@@ -88,13 +88,25 @@ export interface CreativeSyncResult { status: "ok" | "partial" | "failed"; calls
  * Regular (non-Spark) video ads with spend: which video each ad runs, the videos' details, and spend by country for the
  * last 7, 14 and 30 days, summed per video. Every call is planned here; the proxy runs only that call, read-only.
  */
-export async function runCreativeSync(db: ContentLabDatabase, deps: { call: (call: PlannedCall) => Promise<unknown> }, now = new Date(), options: { maxCalls?: number } = {}): Promise<CreativeSyncResult> {
+/** The connector app's rate limit is shared with other tools: back off and retry instead of failing the sync. */
+const RATE_LIMITED = /QPS limit|40100|rate limit|too many requests/i;
+const RATE_LIMIT_WAITS_MS = [3_000, 10_000, 30_000, 60_000];
+
+export async function runCreativeSync(db: ContentLabDatabase, deps: { call: (call: PlannedCall) => Promise<unknown>; sleep?: (ms: number) => Promise<void> }, now = new Date(), options: { maxCalls?: number } = {}): Promise<CreativeSyncResult> {
   const at = now.toISOString();
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
   let calls = 0;
   const request = async (call: PlannedCall): Promise<unknown> => {
-    if (calls >= (options.maxCalls ?? CREATIVE_MAX_CALLS)) throw new Error("call budget exhausted");
-    calls += 1;
-    try { return await deps.call(call); } catch { calls += 1; return deps.call(call); }
+    for (let attempt = 0; ; attempt += 1) {
+      if (calls >= (options.maxCalls ?? CREATIVE_MAX_CALLS)) throw new Error("call budget exhausted");
+      calls += 1;
+      try { return await deps.call(call); } catch (error) {
+        const limited = RATE_LIMITED.test(error instanceof Error ? error.message : String(error));
+        const waits = limited ? RATE_LIMIT_WAITS_MS : [2_000];
+        if (attempt >= waits.length) throw error;
+        await sleep(waits[attempt]!);
+      }
+    }
   };
   const accounts = db.prepare("SELECT advertiser_id FROM ad_accounts ORDER BY advertiser_id").all() as Array<{ advertiser_id: string }>;
   const result: CreativeSyncResult = { status: "ok", calls: 0, accounts: accounts.length, creatives: 0 };

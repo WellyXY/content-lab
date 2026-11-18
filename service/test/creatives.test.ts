@@ -62,6 +62,22 @@ describe("regular ad creatives", () => {
     db.close();
   });
 
+  it("waits and retries when the shared connector app hits its rate limit", async () => {
+    const db = openDatabase(":memory:");
+    db.prepare("INSERT INTO ad_accounts(advertiser_id, name, updated_at) VALUES ('adv1', 'A', 't')").run();
+    const tiktok = fakeTikTok();
+    let limited = 2;
+    const waits: number[] = [];
+    const call = async (planned: PlannedCall) => {
+      if (limited > 0) { limited -= 1; throw new Error("TikTok API error 40100: App reaches the QPS limit 50"); }
+      return tiktok.call(planned);
+    };
+    const result = await runCreativeSync(db, { call, sleep: async (ms) => { waits.push(ms); } }, NOW);
+    expect(result).toMatchObject({ status: "ok", creatives: 2 });
+    expect(waits).toEqual([3_000, 10_000]);
+    db.close();
+  });
+
   it("picks each country's top creatives by 30-day spend and writes a guide from analyzed ones only, numbers kept out of prose", async () => {
     const db = openDatabase(":memory:");
     for (const [index, spend] of [500, 400, 300, 200].entries()) {
